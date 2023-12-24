@@ -6,6 +6,9 @@ import threading
 import pigpio
 from nrf24 import *
 
+CE_PIN = 25
+
+
 RF_POWER = RF24_PA.HIGH
 RF_BITRATE = RF24_DATA_RATE.RATE_250KBPS
 
@@ -46,6 +49,7 @@ class Command:
     self.clients = []
     self.wireless = Wireless(radioCePin)
     self.thread = threading.Thread(target=self.commThread)
+    self.fieldNames = []
 
   def toFloat(self, value):
     try:
@@ -60,6 +64,7 @@ class Command:
 
   def dumpNames(self, names):
     nice = [x.decode() for x in names]
+    self.fieldNames = nice
     nice = ', '.join(nice)
     logging.info(f"Field Names: {nice}")
 
@@ -71,6 +76,9 @@ class Command:
     self.clients.append(Client())
     self.wireless.startClient(code + self.codeBase)
 
+  def getClients(self):
+    return self.clients
+
   def getCurrentClient(self):
     return self.clients[self.clientIndex]
 
@@ -78,6 +86,7 @@ class Command:
     self.thread.start()
 
   def stop(self):
+    self.run = False
     self.thread.join()
 
   def process(self, line):
@@ -145,4 +154,11 @@ class Command:
         time.sleep(0.05)
     finally:
       self.wireless.stop()
+
+
+command = Command(CE_PIN, 'ZWWW')
+
+def init():
+  command.addClient('T')
+  command.start()
 
