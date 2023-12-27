@@ -70,15 +70,17 @@ class Command:
     self.thread = threading.Thread(target=self.commThread)
     self.fieldNames = []
 
-  def dumpFields(self, clientIndex, client):
+  def processFields(self, clientIndex, client):
     nice = [F'{x:.2f}' for x in client.data]
     nice = ', '.join(nice)
     logging.info(f"Loco[{clientIndex}]: {client.cmd}/{client.value:.2f} {nice}")
 
-  def dumpNames(self, names):
-    nice = [x.decode() for x in names]
-    self.fieldNames = nice
-    nice = ', '.join(nice)
+  def processName(self, index, name):
+    for i in range(len(self.fieldNames), index+1):
+      self.fieldNames.append('')
+    name = name.decode()
+    self.fieldNames[index] = name
+    nice = ', '.join(self.fieldNames)
     logging.info(f"Field Names: {nice}")
 
   def addClient(self, name, code = 'T'):
@@ -135,6 +137,8 @@ class Command:
       return None
 
   def commThread(self):
+    namesMask = 0x80
+    indexMask = 0x0F
     try:
       while self.run:
         available, pipe = self.wireless.radio.data_ready_pipe()
@@ -151,21 +155,21 @@ class Command:
           if len(payload) > 0:
             packetId = payload[0]
             payload = payload[1:]
-            if packetId == 0x00:
-              lenInFloats = int(len(payload) / 7)
-              fmt = '<' + '7s'*lenInFloats
+            if (packetId & namesMask):
+              size = len(payload)
+              fmt = f'<{size}s'
               unpacked = self.unpack(fmt, payload)
               if unpacked:
-                names = unpacked
-                self.dumpNames(names)
-            elif packetId == 0x80:
+                index = packetId & indexMask
+                self.processName(index, unpacked[0])
+            else:
               lenInFloats = int(len(payload) / 4)
               fmt = '<' + 'f'*lenInFloats
               if client:
                 unpacked = self.unpack(fmt, payload)
                 if unpacked:
                   client.data = unpacked
-                  self.dumpFields(pipe-1, client)
+                  self.processFields(pipe-1, client)
         time.sleep(0.05)
     finally:
       self.wireless.stop()
