@@ -4,6 +4,7 @@ import struct
 import logging
 import threading
 import pigpio
+import queue
 from nrf24 import *
 
 CE_PIN = 25
@@ -41,6 +42,23 @@ class Client:
     self.value = 0.0
     self.data = []
     self.name = name
+    self.queue = queue.Queue()
+
+  def toFloat(self, value):
+    try:
+      return float(value)
+    except:
+      return 0.0
+
+  def command(self, cmd, value):
+    self.queue.put( (cmd, self.toFloat(value)) )
+
+  def getQueued(self):
+    try:
+      self.cmd, self.value = self.queue.get(False)
+    except queue.Empty:
+      pass
+    return self.cmd, self.value
 
 class Command:
   def __init__(self, radioCePin, codeBase):
@@ -51,12 +69,6 @@ class Command:
     self.wireless = Wireless(radioCePin)
     self.thread = threading.Thread(target=self.commThread)
     self.fieldNames = []
-
-  def toFloat(self, value):
-    try:
-      return float(value)
-    except:
-      return 0.0
 
   def dumpFields(self, clientIndex, client):
     nice = [F'{x:.2f}' for x in client.data]
@@ -77,11 +89,16 @@ class Command:
     self.clients.append(Client(name))
     self.wireless.startClient(code + self.codeBase)
 
-  def getClients(self):
+  def getClientList(self):
     return self.clients
 
-  def getCurrentClient(self):
+  def getClient(self):
     return self.clients[self.clientIndex]
+
+  def setClient(self, index):
+    index = int(index)
+    if index >= 0 and index < len(self.clients):
+      self.clientIndex = index
 
   def start(self):
     self.thread.start()
@@ -92,28 +109,24 @@ class Command:
 
   def process(self, line):
     if len(line) > 0:
-      rawCmd = line[0]
-      client = self.clients[self.clientIndex]
-      value = self.toFloat(line[1:])
-      if rawCmd == 't' or rawCmd == 's':
-        client.cmd = 's'
-        client.value = value
-      elif rawCmd == 'l' or rawCmd == 'b':
-        client.cmd = 'l'
-        client.value = value
-      elif rawCmd == 'g':
-        client.cmd = rawCmd
-        client.value = value
-      elif rawCmd == 'q':
+      client = self.getClient()
+      cmd = line[0]
+      value = line[1:]
+      if cmd == 'q':
         self.run = False
-      elif rawCmd == 'p':
+      elif cmd == 'p':
         nice = [F'{x:.2f}' for x in client.data]
         nice = ', '.join(nice)
-        print(f'Data: {nice}')
-      elif rawCmd == 'c':
-        index = int(value)
-        if index >= 0 and index < len(self.clients):
-          self.clientIndex = index
+        print(F'[{client.name}]: {nice}')
+      elif cmd == 'c':
+        try:
+          value = int(value)
+        except:
+          value = 0
+        self.setClient(value)
+      else:
+        client.command(cmd, value)
+
 
   def unpack(self, fmt, payload):
     try:
@@ -129,7 +142,8 @@ class Command:
           payload = self.wireless.radio.get_payload()
           if pipe <= len(self.clients):
             client = self.clients[pipe - 1]
-            ackData = struct.pack('<bf', ord(client.cmd), client.value)
+            cmd, value = client.getQueued()
+            ackData = struct.pack('<bf', ord(cmd), value)
             self.wireless.radio.ack_payload(pipe, ackData)
           else:
             client = None
@@ -159,7 +173,4 @@ class Command:
 
 command = Command(CE_PIN, 'ZWWW')
 
-def init():
-  command.addClient('T')
-  command.start()
 
