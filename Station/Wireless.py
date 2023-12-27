@@ -36,10 +36,11 @@ class Wireless:
     self.gpio.stop()
 
 class Client:
-  def __init__(self):
+  def __init__(self, name):
     self.cmd = '0'
     self.value = 0.0
     self.data = []
+    self.name = name
 
 class Command:
   def __init__(self, radioCePin, codeBase):
@@ -68,12 +69,12 @@ class Command:
     nice = ', '.join(nice)
     logging.info(f"Field Names: {nice}")
 
-  def addClient(self, code):
+  def addClient(self, name, code = 'T'):
     if len(code) == 0:
       code = 'T'
     elif len(code) > 1:
       code = code[0]
-    self.clients.append(Client())
+    self.clients.append(Client(name))
     self.wireless.startClient(code + self.codeBase)
 
   def getClients(self):
