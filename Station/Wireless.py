@@ -90,29 +90,29 @@ class Command:
     self.thread.join()
 
   def process(self, line):
-      if len(line) > 0:
-        rawCmd = line[0]
-        client = self.clients[self.clientIndex]
-        value = self.toFloat(line[1:])
-        if rawCmd == 't' or rawCmd == 's':
-          client.cmd = 's'
-          client.value = value
-        elif rawCmd == 'l' or rawCmd == 'b':
-          client.cmd = 'l'
-          client.value = value
-        elif rawCmd == 'g':
-          client.cmd = rawCmd
-          client.value = value
-        elif rawCmd == 'q':
-          self.run = False
-        elif rawCmd == 'p':
-          nice = [F'{x:.2f}' for x in client.data]
-          nice = ', '.join(nice)
-          print(f'Data: {nice}')
-        elif rawCmd == 'c':
-          index = int(value)
-          if index >= 0 and index < len(self.clients):
-            self.clientIndex = index
+    if len(line) > 0:
+      rawCmd = line[0]
+      client = self.clients[self.clientIndex]
+      value = self.toFloat(line[1:])
+      if rawCmd == 't' or rawCmd == 's':
+        client.cmd = 's'
+        client.value = value
+      elif rawCmd == 'l' or rawCmd == 'b':
+        client.cmd = 'l'
+        client.value = value
+      elif rawCmd == 'g':
+        client.cmd = rawCmd
+        client.value = value
+      elif rawCmd == 'q':
+        self.run = False
+      elif rawCmd == 'p':
+        nice = [F'{x:.2f}' for x in client.data]
+        nice = ', '.join(nice)
+        print(f'Data: {nice}')
+      elif rawCmd == 'c':
+        index = int(value)
+        if index >= 0 and index < len(self.clients):
+          self.clientIndex = index
 
   def unpack(self, fmt, payload):
     try:
