@@ -44,6 +44,12 @@ class Command:
     self.thread = threading.Thread(target=self.commThread)
     self.fieldNames = []
 
+  def getFieldIndex(self, fieldName):
+    try:
+      return self.fieldNames.index(fieldName)
+    except:
+      return -1
+
   def processFields(self, clientIndex, client):
     nice = [F'{x:.2f}' for x in client.data]
     nice = ', '.join(nice)
