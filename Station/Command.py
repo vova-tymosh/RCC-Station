@@ -9,13 +9,16 @@ from Wireless import Wireless
 CE_PIN = 25
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 class Client:
-  def __init__(self, name):
+  def __init__(self, index, name):
     self.cmd = '0'
     self.value = 0.0
     self.data = []
     self.name = name
+    self.index = index
+    self.fieldNames = []
     self.queue = queue.Queue()
 
   def toFloat(self, value):
@@ -34,6 +37,29 @@ class Client:
       pass
     return self.cmd, self.value
 
+  def getFieldIndex(self, fieldName):
+    try:
+      return self.fieldNames.index(fieldName)
+    except:
+      return -1
+
+  def updateData(self, data):
+    self.data = data
+    nice = [F'{x:.2f}' for x in self.data]
+    nice = ', '.join(nice)
+    logger.info(f"Loco[{self.index}]: {self.cmd}/{self.value:.2f} {nice}")
+
+  def updateFieldName(self, index, name):
+    for i in range(len(self.fieldNames), index+1):
+      self.fieldNames.append('')
+    name = name.decode()
+    self.fieldNames[index] = name
+    nice = ', '.join(self.fieldNames)
+    logger.info(f"Field Names[{self.index}]: {nice}")
+
+  def getFieldNames(self):
+    return self.fieldNames
+
 class Command:
   def __init__(self, radioCePin, codeBase):
     self.run = True
@@ -42,33 +68,14 @@ class Command:
     self.clients = []
     self.wireless = Wireless(radioCePin)
     self.thread = threading.Thread(target=self.commThread)
-    self.fieldNames = []
-
-  def getFieldIndex(self, fieldName):
-    try:
-      return self.fieldNames.index(fieldName)
-    except:
-      return -1
-
-  def processFields(self, clientIndex, client):
-    nice = [F'{x:.2f}' for x in client.data]
-    nice = ', '.join(nice)
-    logger.info(f"Loco[{clientIndex}]: {client.cmd}/{client.value:.2f} {nice}")
-
-  def processName(self, index, name):
-    for i in range(len(self.fieldNames), index+1):
-      self.fieldNames.append('')
-    name = name.decode()
-    self.fieldNames[index] = name
-    nice = ', '.join(self.fieldNames)
-    logger.info(f"Field Names: {nice}")
 
   def addClient(self, name, code = 'T'):
     if len(code) == 0:
       code = 'T'
     elif len(code) > 1:
       code = code[0]
-    self.clients.append(Client(name))
+    index = len(self.clients)
+    self.clients.append(Client(index, name))
     self.wireless.startClient(code + self.codeBase)
 
   def getClientList(self):
@@ -132,7 +139,7 @@ class Command:
           else:
             client = None
 
-          if len(payload) > 0:
+          if client and len(payload):
             packetId = payload[0]
             payload = payload[1:]
             if (packetId & namesMask):
@@ -141,15 +148,13 @@ class Command:
               unpacked = self.unpack(fmt, payload)
               if unpacked:
                 index = packetId & indexMask
-                self.processName(index, unpacked[0])
+                client.updateFieldName(index, unpacked[0])
             else:
               lenInFloats = int(len(payload) / 4)
               fmt = '<' + 'f'*lenInFloats
-              if client:
-                unpacked = self.unpack(fmt, payload)
-                if unpacked:
-                  client.data = unpacked
-                  self.processFields(pipe-1, client)
+              unpacked = self.unpack(fmt, payload)
+              if unpacked:
+                client.updateData(unpacked)
         time.sleep(0.05)
     finally:
       self.wireless.stop()
