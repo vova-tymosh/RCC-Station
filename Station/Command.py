@@ -20,6 +20,8 @@ class Client:
     self.index = index
     self.fieldNames = []
     self.queue = queue.Queue()
+    self.gear = 0
+    self.throttle = 0
 
   def toFloat(self, value):
     try:
@@ -28,7 +30,12 @@ class Client:
       return 0.0
 
   def command(self, cmd, value):
-    self.queue.put( (cmd, self.toFloat(value)) )
+    value = self.toFloat(value)
+    self.queue.put( (cmd, value) )
+    if cmd == 'g':
+      self.gear = value
+    elif cmd == 't':
+      self.throttle = value
 
   def getQueued(self):
     try:
@@ -59,6 +66,13 @@ class Client:
 
   def getFieldNames(self):
     return self.fieldNames
+
+  def getGear(self):
+    return self.gear
+
+  def getThrottle(self):
+    return self.throttle
+
 
 class Command:
   def __init__(self, radioCePin, codeBase):
