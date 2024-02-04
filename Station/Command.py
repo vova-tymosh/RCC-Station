@@ -7,6 +7,7 @@ import queue
 from Wireless import Wireless
 
 CE_PIN = 25
+CSN_PIN = 8
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -75,12 +76,12 @@ class Client:
 
 
 class Command:
-  def __init__(self, radioCePin, codeBase):
+  def __init__(self, radioCePin, radioCsnPin, codeBase):
     self.run = True
     self.codeBase = codeBase
     self.clientIndex = 0
     self.clients = []
-    self.wireless = Wireless(radioCePin)
+    self.wireless = Wireless(radioCePin, radioCsnPin)
     self.thread = threading.Thread(target=self.commThread)
 
   def addClient(self, name, code = 'T'):
@@ -140,16 +141,18 @@ class Command:
   def commThread(self):
     namesMask = 0x80
     indexMask = 0x0F
+    self.wireless.radio.startListening()
     try:
       while self.run:
-        available, pipe = self.wireless.radio.data_ready_pipe()
+        available, pipe = self.wireless.radio.available_pipe()
         if available:
-          payload = self.wireless.radio.get_payload()
+          length = self.wireless.radio.getDynamicPayloadSize()
+          payload = self.wireless.radio.read(length)
           if pipe <= len(self.clients):
             client = self.clients[pipe - 1]
             cmd, value = client.getQueued()
             ackData = struct.pack('<bf', ord(cmd), value)
-            self.wireless.radio.ack_payload(pipe, ackData)
+            self.wireless.radio.writeAckPayload(pipe, ackData)
           else:
             client = None
 
@@ -174,6 +177,23 @@ class Command:
       self.wireless.stop()
 
 
-command = Command(CE_PIN, 'ZWWW')
+command = Command(CE_PIN, CSN_PIN, 'ZWWW')
 
 
+
+# Below is for test only
+if __name__ == "__main__":
+  logging.basicConfig(level=logging.WARNING,
+                      format='%(asctime)s %(message)s',
+                      filename='station.log',
+                      filemode='a')
+  logging.error('Start')
+  command.addClient('tst', 'w')
+  command.start()
+  while command.run:
+    line = input('>')
+    command.process(line)
+
+  time.sleep(0.1)
+  command.stop()
+  logging.error('Stop')
