@@ -24,7 +24,7 @@ class Wireless:
     self.radio.enableAckPayload()
     self.radio.setPALevel(RF24_PA_HIGH)
     self.radio.setDataRate(RF24_250KBPS)
-    self.radio.printDetails()
+    # self.radio.printPrettyDetails()
 
   def startClient(self, clientAddr):
     self.radio.openReadingPipe(self.clientIndex, bytes(clientAddr, 'utf-8'))
