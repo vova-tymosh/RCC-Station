@@ -2,17 +2,8 @@ import sys
 import time
 import struct
 import logging
-import threading
 import queue
-from RF24 import RF24, RF24_PA_HIGH, RF24_250KBPS
-from RF24Network import RF24Network, RF24NetworkHeader
-
-
-# RF Library Instalation
-#   Home page:            https://nrf24.github.io/RF24/index.html
-#   C code Instalation:   https://nrf24.github.io/RF24/md_docs_linux_install.html
-#   Python wrapper:       https://nrf24.github.io/RF24/md_docs_python_wrapper.html
-
+import Wireless
 
 
 class Loco:
@@ -59,39 +50,30 @@ class Comms:
   packetRegistration = ord('r')
   packetNormal = ord('n')
 
-  def __init__(self, cePin, csnPin):
+  def __init__(self, wireless):
     self.run = True
     self.node = 0
-    self.radio = RF24(cePin, csnPin)
-    self.network = RF24Network(self.radio)
-    self.thread = threading.Thread(target=self.commThread)
+    self.wireless = wireless
+    self.wireless.setOnReceive(self.onReceive)
     self.locoMap = {}
 
   def start(self):
-    if not self.radio.begin():
-        raise RuntimeError("*** Radio hardware is not responding")
-    self.radio.setPALevel(RF24_PA_HIGH)
-    self.radio.setDataRate(RF24_250KBPS)
-    self.network.begin(self.node)
-    # self.radio.printPrettyDetails()
-    self.thread.start()
+    self.wireless.start()
 
   def stop(self):
-    self.run = False
-    self.thread.join()
+    self.wireless.stop()
 
   def askToRegister(self, locoId):
     print("Unknown, ask to register")
     payload = struct.pack('<bf', Comms.packetRegistration, 0)
-    self.network.write(RF24NetworkHeader(locoId), payload)
+    self.wireless.write(locoId, payload)
 
   def send(self, locoId):
     if locoId in self.locoMap:
       loco = self.locoMap[locoId]
       cmd, value = loco.pop()
       payload = struct.pack('<bf', ord(cmd), value)
-      report = self.network.write(RF24NetworkHeader(locoId), payload)
-      # print("Sent [%s] = %s, %s"%(locoId, payload, report))
+      self.wireless.write(locoId, payload)
       #Todo don't POP if network send fails
 
   def register(self, locoId, payload):
@@ -119,26 +101,15 @@ class Comms:
     else:
       self.normal(locoId, payload)
 
-  def commThread(self):
-    try:
-      while self.run:
-        self.network.update()
-        
-        # self.send(1)
-        # time.sleep(0.100)
-
-        while self.network.available():
-          header, payload = self.network.read()
-          if len(payload) > 0:
-            packetType = payload[0]
-            locoId = header.from_node
-            payload = payload[1:]
-            self.processPacket(locoId, packetType, payload)
-            # time.sleep(0.050)
-            self.send(locoId)
-        # time.sleep(0.020)
-    finally:
-      self.radio.powerDown()
+  def onReceive(self, fromNode, payload):
+    locoId = fromNode
+    packetType = payload[0]
+    payload = payload[1:]
+    if (packetType == Comms.packetRegistration):
+      self.register(locoId, payload)
+    else:
+      self.normal(locoId, payload)
+    self.send(locoId)
 
 
 if __name__ == "__main__":
@@ -148,10 +119,11 @@ if __name__ == "__main__":
                       filemode='a')
   logging.error('Start')
 
-  comms = Comms(25, 8)
+  w = Wireless.Wireless(25, 8)
+  comms = Comms(w)
   comms.start()
   
-  while comms.run:
+  while 1:
     time.sleep(1)
 
   comms.stop()

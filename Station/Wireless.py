@@ -1,12 +1,6 @@
-import sys
-import time
-import struct
-import logging
 import threading
-import pigpio
-import queue
 from RF24 import RF24, RF24_PA_HIGH, RF24_250KBPS
-
+from RF24Network import RF24Network, RF24NetworkHeader
 
 # RF Library Instalation
 #   Home page:            https://nrf24.github.io/RF24/index.html
@@ -16,29 +10,48 @@ from RF24 import RF24, RF24_PA_HIGH, RF24_250KBPS
 
 class Wireless:
   def __init__(self, cePin, csnPin):
+    self.run = True
+    self.node = 0
+    self.onReceive = None
     self.radio = RF24(cePin, csnPin)
-    self.clientIndex = 1
+    self.network = RF24Network(self.radio)
+    self.thread = threading.Thread(target=self.commThread)
+
+  def setOnReceive(self, onReceive):
+    self.onReceive = onReceive
+
+  def start(self):
     if not self.radio.begin():
-        raise RuntimeError("radio hardware is not responding")
-    self.radio.enableDynamicPayloads()
-    self.radio.enableAckPayload()
+      raise RuntimeError("*** Radio hardware is not responding")
     self.radio.setPALevel(RF24_PA_HIGH)
     self.radio.setDataRate(RF24_250KBPS)
+    self.network.begin(self.node)
+    self.thread.start()
     # self.radio.printPrettyDetails()
 
-  def startClient(self, clientAddr):
-    self.radio.openReadingPipe(self.clientIndex, bytes(clientAddr, 'utf-8'))
-    self.radio.writeAckPayload(self.clientIndex, struct.pack('<bf', 0, 0))
-    self.clientIndex += 1
-
   def stop(self):
-    self.radio.powerDown()
+    self.run = False
+    self.thread.join()
+
+  def write(self, toNode, payload):
+    return self.network.write(RF24NetworkHeader(toNode), payload)
+
+  def commThread(self):
+    try:
+      while self.run:
+        self.network.update()
+        while self.network.available():
+          header, payload = self.network.read()
+          if len(payload) > 0 and self.onReceive:
+            self.onReceive(header.from_node, payload)
+    finally:
+      self.radio.powerDown()
 
 
-# Below is for test only
-if __name__ == "__main__":
-  w = Wireless(25, 8)
-  w.startClient('a')
-  time.sleep(1)
-  w.stop()
+# # Below is for test only
+# if __name__ == "__main__":
+#   w = Wireless(25, 8)
+#   w.startClient('a')
+#   time.sleep(1)
+#   w.stop()
 
