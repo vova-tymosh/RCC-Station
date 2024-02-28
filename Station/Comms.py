@@ -7,14 +7,15 @@ import Wireless
 
 
 class Loco:
-  def __init__(self, locoId):
+  def __init__(self, locoId, name, fields):
     self.cmd = 'g'
     self.value = 0.0
     self.locoId = locoId
-    self.name = ''
-    self.fieldNames = []
+    self.name = name
+    self.fields = fields
     self.data = []
     self.queue = queue.Queue()
+    logging.info(f"New loco Id: {locoId}, Name: {name}, Fields: {fields}")
 
   def toFloat(self, value):
     try:
@@ -33,22 +34,15 @@ class Loco:
       pass
     return self.cmd, self.value
 
-  def updateNames(self, name, fields):
-    self.name = name
-    self.fieldNames = fields
-    print("Reg", name, fields)
-
-
   def updateData(self, data):
     self.data = data
     nice = [F'{x:.2f}' for x in self.data]
     nice = ', '.join(nice)
     logging.info(f"Loco[{self.locoId}]: {nice}")
-    print("Normal", data)
 
 class Comms:
-  packetRegistration = ord('r')
-  packetNormal = ord('n')
+  packetAuth = ord('r')
+  packetNorm = ord('n')
 
   def __init__(self, wireless):
     self.run = True
@@ -63,57 +57,47 @@ class Comms:
   def stop(self):
     self.wireless.stop()
 
-  def askToRegister(self, locoId):
-    print("Unknown, ask to register")
-    payload = struct.pack('<bf', Comms.packetRegistration, 0)
+  def askToAuthorize(self, locoId):
+    logging.info(f"Unknown id {locoId}, ask to authorize")
+    payload = struct.pack('<bf', Comms.packetAuth, 0)
     self.wireless.write(locoId, payload)
 
   def send(self, locoId):
-    if locoId in self.locoMap:
-      loco = self.locoMap[locoId]
-      cmd, value = loco.pop()
-      payload = struct.pack('<bf', ord(cmd), value)
-      self.wireless.write(locoId, payload)
-      #Todo don't POP if network send fails
+    loco = self.locoMap[locoId]
+    cmd, value = loco.pop()
+    payload = struct.pack('<bf', ord(cmd), value)
+    self.wireless.write(locoId, payload)
+    #Todo don't POP if network send fails
 
-  def register(self, locoId, payload):
-    if locoId not in self.locoMap:
-      self.locoMap[locoId] = Loco(locoId)
+  def authorizePacket(self, locoId, payload):
     size = len(payload)
     unpacked = struct.unpack(f'<{size}s', payload)
     unpacked = unpacked[0].decode()
     fields = unpacked.split()
-    self.locoMap[locoId].updateNames(fields[0], fields[1:])
+    self.locoMap[locoId] = Loco(locoId, fields[0], fields[1:])
 
-  def normal(self, locoId, payload):
-    if locoId in self.locoMap:
-      lenInFloats = int(len(payload) / 4)
-      fmt = '<' + 'f'*lenInFloats
-      unpacked = struct.unpack(fmt, payload)
-      if unpacked:
-        self.locoMap[locoId].updateData(unpacked)
-    else:
-      self.askToRegister(locoId)
-
-  def processPacket(self, locoId, packetType, payload):
-    if (packetType == Comms.packetRegistration):
-      self.register(locoId, payload)
-    else:
-      self.normal(locoId, payload)
+  def normalPacket(self, locoId, payload):
+    lenInFloats = int(len(payload) / 4)
+    fmt = '<' + 'f'*lenInFloats
+    unpacked = struct.unpack(fmt, payload)
+    self.locoMap[locoId].updateData(unpacked)
 
   def onReceive(self, fromNode, payload):
     locoId = fromNode
     packetType = payload[0]
     payload = payload[1:]
-    if (packetType == Comms.packetRegistration):
-      self.register(locoId, payload)
+    if (packetType == Comms.packetAuth):
+      self.authorizePacket(locoId, payload)
     else:
-      self.normal(locoId, payload)
-    self.send(locoId)
+      if locoId in self.locoMap:
+        self.normalPacket(locoId, payload)
+        self.send(locoId)
+      else:
+        self.askToAuthorize(locoId)
 
 
 if __name__ == "__main__":
-  logging.basicConfig(level=logging.WARNING,
+  logging.basicConfig(level=logging.INFO,
                       format='%(asctime)s %(message)s',
                       filename='station.log',
                       filemode='a')

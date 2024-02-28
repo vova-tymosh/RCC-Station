@@ -1,11 +1,14 @@
-import threading
-from RF24 import RF24, RF24_PA_HIGH, RF24_250KBPS
-from RF24Network import RF24Network, RF24NetworkHeader
-
+#
+# RF24 Wireless communication
+# 
 # RF Library Instalation
 #   Home page:            https://nrf24.github.io/RF24/index.html
 #   C code Instalation:   https://nrf24.github.io/RF24/md_docs_linux_install.html
 #   Python wrapper:       https://nrf24.github.io/RF24/md_docs_python_wrapper.html
+#
+import threading
+from RF24 import RF24, RF24_PA_HIGH, RF24_250KBPS
+from RF24Network import RF24Network, RF24NetworkHeader
 
 
 class Wireless:
