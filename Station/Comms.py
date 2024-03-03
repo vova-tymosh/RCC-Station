@@ -10,7 +10,7 @@ from Config import MQTT_PREFIX_WEB, MQTT_PREFIX_JMRI
 
 class Loco:
   def __init__(self, locoId, addr, name, fields):
-    self.cmd = 'g'
+    self.cmd = 't'
     self.value = 0.0
     self.locoId = locoId
     self.addr = addr

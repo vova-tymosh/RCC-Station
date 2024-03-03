@@ -21,7 +21,7 @@ class Loco:
   def setDirection(self, value):
     self.direction = value
     self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/direction", self.direction)
-    logging.info(f"{MQTT_PREFIX_JMRI}/{self.addr}/direction - {self.direction}")
+    logging.info(f"Pub {MQTT_PREFIX_JMRI}/{self.addr}/direction: {self.direction}")
 
   def getDirection(self):
     return self.direction
@@ -29,15 +29,18 @@ class Loco:
   def setThrottle(self, value):
     self.throttle = value
     self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/throttle", self.throttle)
+    logging.info(f"Pub {MQTT_PREFIX_JMRI}/{self.addr}/throttle: {self.throttle}")
 
   def getThrottle(self):
     return self.throttle
 
   def setFunction(self, func, value):
     self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/function/{func}", value)
+    logging.info(f"Pub {MQTT_PREFIX_JMRI}/{self.addr}/function/{func}: {value}")
 
   def setCommand(self, cmd, value):
     self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/command", f"{cmd}{value}")
+    logging.info(f"Pub {MQTT_PREFIX_JMRI}/{self.addr}/command: {cmd}{value}")
 
   def getFieldNames(self):
     return self.fields
@@ -62,6 +65,7 @@ class Command(object):
   def get(self, addr = None):
     if addr == None or addr not in self.locoMap:
       addr = self.current
+      # logging.info(f"Get current: {addr}")
     if addr:
       return self.locoMap[addr]
 
@@ -71,6 +75,7 @@ class Command(object):
   def set(self, addr):
     if addr in self.locoMap:
       self.current = addr
+      logging.info(f"Set current to: {self.current}")
 
   def add(self, loco):
     logging.error(f'Add = {loco}')
