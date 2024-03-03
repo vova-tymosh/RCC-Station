@@ -1,199 +1,110 @@
 import sys
 import time
-import struct
 import logging
 import threading
-import queue
-from Wireless import Wireless
+import paho.mqtt.client as mqtt
+from Config import MQTT_PREFIX_WEB, MQTT_PREFIX_JMRI
 
-CE_PIN = 25
-CSN_PIN = 8
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-class Client:
-  def __init__(self, index, name):
-    self.cmd = '0'
-    self.value = 0.0
-    self.data = []
+class Loco:
+  def __init__(self, addr, name, fields):
+    self.addr = addr
     self.name = name
-    self.index = index
-    self.fieldNames = []
-    self.queue = queue.Queue()
-    self.gear = 0
+    self.fields = fields
     self.throttle = 0
+    self.direction = 0
+    self.data = []
+    self.mqttClient = None
+    nice = ' '.join(fields)
+    logging.info(f"New loco Addr: {addr}, Name: {name}, Fields: {nice}")
 
-  def toFloat(self, value):
-    try:
-      return float(value)
-    except:
-      return 0.0
+  def setDirection(self, value):
+    self.direction = value
+    self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/direction", self.direction)
+    logging.info(f"{MQTT_PREFIX_JMRI}/{self.addr}/direction - {self.direction}")
 
-  def command(self, cmd, value):
-    value = self.toFloat(value)
-    self.queue.put( (cmd, value) )
-    if cmd == 'g':
-      self.gear = value
-    elif cmd == 't':
-      self.throttle = value
+  def getDirection(self):
+    return self.direction
 
-  def getQueued(self):
-    try:
-      self.cmd, self.value = self.queue.get(False)
-    except queue.Empty:
-      pass
-    return self.cmd, self.value
-
-  def getFieldIndex(self, fieldName):
-    try:
-      return self.fieldNames.index(fieldName)
-    except:
-      return -1
-
-  def updateData(self, data):
-    self.data = data
-    nice = [F'{x:.2f}' for x in self.data]
-    nice = ', '.join(nice)
-    logger.info(f"Loco[{self.index}]: {self.cmd}/{self.value:.2f} {nice}")
-
-  def updateFieldName(self, index, name):
-    for i in range(len(self.fieldNames), index+1):
-      self.fieldNames.append('')
-    name = name.decode()
-    self.fieldNames[index] = name
-    nice = ', '.join(self.fieldNames)
-    logger.info(f"Field Names[{self.index}]: {nice}")
-
-  def getFieldNames(self):
-    return self.fieldNames
-
-  def getGear(self):
-    return self.gear
+  def setThrottle(self, value):
+    self.throttle = value
+    self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/throttle", self.throttle)
 
   def getThrottle(self):
     return self.throttle
 
+  def setFunction(self, func, value):
+    self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/function/{func}", value)
 
-class Command:
-  def __init__(self, radioCePin, radioCsnPin, codeBase):
-    self.run = True
-    self.codeBase = codeBase
-    self.clientIndex = 0
-    self.clients = []
-    self.wireless = Wireless(radioCePin, radioCsnPin)
-    self.thread = threading.Thread(target=self.commThread)
+  def setCommand(self, cmd, value):
+    self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/command", f"{cmd}{value}")
 
-  def addClient(self, name, code = 'T'):
-    if len(code) == 0:
-      code = 'T'
-    elif len(code) > 1:
-      code = code[0]
-    index = len(self.clients)
-    self.clients.append(Client(index, name))
-    self.wireless.startClient(code + self.codeBase)
+  def getFieldNames(self):
+    return self.fields
 
-  def getClientList(self):
-    return self.clients
+  def updateData(self, data):
+    self.data = data
 
-  def getClient(self):
-    return self.clients[self.clientIndex]
 
-  def setClient(self, index):
-    index = int(index)
-    if index >= 0 and index < len(self.clients):
-      self.clientIndex = index
+class Command(object):
+  _instance = None
+
+  def __new__(cls):
+    if cls._instance is None:
+      cls._instance = super(Command, cls).__new__(cls)
+    return cls._instance        
+
+  def __init__(self):
+    self.locoMap = {}
+    self.current = None
+    self.mqttClient = None
+
+  def get(self, addr = None):
+    if addr == None or addr not in self.locoMap:
+      addr = self.current
+    if addr:
+      return self.locoMap[addr]
+
+  def getLocoMap(self):
+    return self.locoMap
+
+  def set(self, addr):
+    if addr in self.locoMap:
+      self.current = addr
+
+  def add(self, loco):
+    logging.error(f'Add = {loco}')
+    self.locoMap[loco.addr] = loco
+    loco.mqttClient = self.mqttClient
+    if self.current == None:
+      self.current = loco.addr
+      logging.error(f'Current = {self.current}')
 
   def start(self):
-    self.thread.start()
+    logging.error('Command Start')
+    self.mqttClient = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "RRPop")
+    self.mqttClient.on_message = self.on_message
+    self.mqttClient.connect('127.0.0.1')
+    self.mqttClient.subscribe(f'{MQTT_PREFIX_WEB}/#')
+    self.mqttClient.loop_start()
 
   def stop(self):
-    self.run = False
-    self.thread.join()
+    self.mqttClient.loop_stop()
 
-  def process(self, line):
-    if len(line) > 0:
-      client = self.getClient()
-      cmd = line[0]
-      value = line[1:]
-      if cmd == 'q':
-        self.run = False
-      elif cmd == 'p':
-        nice = [F'{x:.2f}' for x in client.data]
-        nice = ', '.join(nice)
-        print(F'[{client.name}]: {nice}')
-      elif cmd == 'c':
-        try:
-          value = int(value)
-        except:
-          value = 0
-        self.setClient(value)
-      else:
-        client.command(cmd, value)
+  def on_message(self, client, userdata, msg):
+      payload = str(msg.payload, 'UTF-8')
+      subTopic = msg.topic[len(MQTT_PREFIX_WEB + '/'):]
+      locoAddr, subTopic = subTopic.split('/', 1)
+
+      # logging.info(f"MQTT GET {locoAddr}/{subTopic}: {payload}")
+      if subTopic == 'fileds':
+        payload = payload.split()
+        loco = Loco(locoAddr, payload[0], payload[1:])
+        self.add(loco)
+      elif subTopic == 'data':
+        loco = self.get(locoAddr)
+        if loco:
+          loco.updateData(payload.split())
 
 
-  def unpack(self, fmt, payload):
-    try:
-      return struct.unpack(fmt, payload)
-    except:
-      return None
-
-  def commThread(self):
-    namesMask = 0x80
-    indexMask = 0x0F
-    self.wireless.radio.startListening()
-    try:
-      while self.run:
-        available, pipe = self.wireless.radio.available_pipe()
-        if available:
-          length = self.wireless.radio.getDynamicPayloadSize()
-          payload = self.wireless.radio.read(length)
-          if pipe <= len(self.clients):
-            client = self.clients[pipe - 1]
-            cmd, value = client.getQueued()
-            ackData = struct.pack('<bf', ord(cmd), value)
-            self.wireless.radio.writeAckPayload(pipe, ackData)
-          else:
-            client = None
-
-          if client and len(payload):
-            packetId = payload[0]
-            payload = payload[1:]
-            if (packetId & namesMask):
-              size = len(payload)
-              fmt = f'<{size}s'
-              unpacked = self.unpack(fmt, payload)
-              if unpacked:
-                index = packetId & indexMask
-                client.updateFieldName(index, unpacked[0])
-            else:
-              lenInFloats = int(len(payload) / 4)
-              fmt = '<' + 'f'*lenInFloats
-              unpacked = self.unpack(fmt, payload)
-              if unpacked:
-                client.updateData(unpacked)
-        time.sleep(0.05)
-    finally:
-      self.wireless.stop()
-
-
-command = Command(CE_PIN, CSN_PIN, 'ZWWW')
-
-
-
-# Below is for test only
-if __name__ == "__main__":
-  logging.basicConfig(level=logging.WARNING,
-                      format='%(asctime)s %(message)s',
-                      filename='station.log',
-                      filemode='a')
-  logging.error('Start')
-  command.addClient('tst', 'w')
-  command.start()
-  while command.run:
-    line = input('>')
-    command.process(line)
-
-  time.sleep(0.1)
-  command.stop()
-  logging.error('Stop')
+command = Command()

@@ -5,6 +5,7 @@ import logging
 import queue
 import Wireless
 import paho.mqtt.client as mqtt
+from Config import MQTT_PREFIX_WEB, MQTT_PREFIX_JMRI
 
 
 class Loco:
@@ -17,7 +18,9 @@ class Loco:
     self.fields = fields
     self.data = []
     self.queue = queue.Queue()
-    logging.info(f"New loco Id: {locoId}, Addr: {addr}, Name: {name}, Fields: {fields}")
+    nice = ' '.join(fields)
+    logging.info(f"New Loco: {MQTT_PREFIX_WEB}/{self.addr}/fileds - {name} {nice}")
+    client.publish(f"{MQTT_PREFIX_WEB}/{self.addr}/fileds", f"{name} {nice}", retain=True)
 
   def toFloat(self, value):
     try:
@@ -43,8 +46,10 @@ class Loco:
   def updateData(self, data):
     self.data = data
     nice = [F'{x:.2f}' for x in self.data]
-    nice = ', '.join(nice)
-    logging.info(f"Loco[{self.locoId}]: {nice}")
+    nice = ' '.join(nice)
+    logging.info(f"Loco[{self.addr}]: {nice}")
+    client.publish(f"{MQTT_PREFIX_WEB}/{self.addr}/data", f"{nice}")
+
 
 class Comms:
   packetAuth = ord('r')
@@ -112,7 +117,7 @@ class Comms:
 
 def on_message(client, userdata, msg):
     payload = str(msg.payload, 'UTF-8')
-    subTopic = msg.topic[len(locoPrefix):]
+    subTopic = msg.topic[len(MQTT_PREFIX_JMRI + '/'):]
     locoAddr, subTopic = subTopic.split('/', 1)
 
     loco = comms.findByAddr(locoAddr)
@@ -132,16 +137,13 @@ def on_message(client, userdata, msg):
           loco.push('b', 1)
         else:
           loco.push('b', 0)
-      # elif subTopic == 'function/1':
-      #   if payload == 'ON':
-      #     client.publish("cab/25/throttle", 50)
-      #   else:
-      #     loco.push('b', 0)
+      elif subTopic == 'command':
+        loco.push(payload[0], payload[1:])
 
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(message)s',
-                    filename='station.log',
+                    filename='comms.log',
                     filemode='a')
 logging.error('Start')
 
@@ -149,12 +151,11 @@ w = Wireless.Wireless(25, 8)
 comms = Comms(w)
 comms.start()
 
-locoPrefix = 'cab/'
 
-client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "RRStation")
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, "RRPush")
 client.on_message = on_message
 client.connect('127.0.0.1')
-client.subscribe(f'{locoPrefix}#')
+client.subscribe(f'{MQTT_PREFIX_JMRI}/#')
 
 client.loop_forever()
 
