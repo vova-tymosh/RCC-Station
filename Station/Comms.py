@@ -127,16 +127,16 @@ def on_message(client, userdata, msg):
         loco.push('t', payload)
       elif subTopic == 'direction':
         if payload == 'FORWARD':
-          loco.push('g', 1)
+          loco.push('d', 1)
         elif payload == 'REVERSE':
-          loco.push('g', -1)
+          loco.push('d', -1)
         else:
-          loco.push('g', 0)
+          loco.push('d', 0)
       elif subTopic == 'function/0':
         if payload == 'ON':
-          loco.push('b', 1)
+          loco.push('l', 1)
         else:
-          loco.push('b', 0)
+          loco.push('l', 0)
       elif subTopic == 'command':
         loco.push(payload[0], payload[1:])
 
