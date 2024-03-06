@@ -18,6 +18,12 @@ class Loco:
     nice = ' '.join(fields)
     logging.info(f"New loco Addr: {addr}, Name: {name}, Fields: {nice}")
 
+  def toFloat(self, value):
+    try:
+      return float(value)
+    except:
+      return 0.0
+
   def setDirection(self, value):
     self.direction = value
     self.mqttClient.publish(f"{MQTT_PREFIX_JMRI}/{self.addr}/direction", self.direction)
@@ -46,7 +52,7 @@ class Loco:
     return self.fields
 
   def updateData(self, data):
-    self.data = data
+    self.data = list(map(self.toFloat, data))
 
 
 class Command(object):

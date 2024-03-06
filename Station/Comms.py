@@ -14,10 +14,9 @@ commandDirection = 'd'
 commandLight     = 'l'
 
 class Loco:
-  def __init__(self, locoId, addr, name, fields):
+  def __init__(self, addr, name, fields):
     self.cmd = 't'
     self.value = 0.0
-    self.locoId = locoId
     self.addr = addr
     self.name = name
     self.fields = fields
@@ -55,7 +54,6 @@ class Comms:
     self.wireless = wireless
     self.wireless.setOnReceive(self.onReceive)
     self.locoMap = {}
-    self.locoMapByAddr = {}
     self.onAuth = None
     self.onData = None
 
@@ -66,51 +64,49 @@ class Comms:
     self.wireless.stop()
 
   def get(self, addr):
-    if addr in self.locoMapByAddr:
-      return self.locoMapByAddr[addr]
+    if addr in self.locoMap:
+      return self.locoMap[addr]
 
-  def askToAuthorize(self, locoId):
-    logging.info(f"Unknown id {locoId}, ask to authorize")
+  def askToAuthorize(self, locoAddr):
+    logging.info(f"Unknown id {locoAddr}, ask to authorize")
     payload = struct.pack('<bf', ord(packetAuth), 0)
-    self.wireless.write(locoId, payload)
+    self.wireless.write(locoAddr, payload)
 
-  def send(self, locoId):
-    loco = self.locoMap[locoId]
+  def send(self, loco, toAddr):
     cmd, value = loco.peek()
     payload = struct.pack('<bf', ord(cmd), value)
-    if self.wireless.write(locoId, payload):
+    if self.wireless.write(toAddr, payload):
       loco.pop()
 
-  def authorizePacket(self, locoId, payload):
+  def authorizePacket(self, locoAddr, payload):
     size = len(payload)
     unpacked = struct.unpack(f'<{size}s', payload)
     unpacked = unpacked[0].decode()
     fields = unpacked.split()
-    loco = Loco(locoId, fields[0], fields[1], fields[2:])
-    self.locoMap[locoId] = loco
-    self.locoMapByAddr[loco.addr] = loco
+    loco = Loco(locoAddr, fields[1], fields[2:])
+    self.locoMap[locoAddr] = loco
     self.onAuth(loco)
 
-  def normalPacket(self, locoId, payload):
+  def normalPacket(self, loco, payload):
     lenInFloats = int(len(payload) / 4)
     fmt = '<' + 'f'*lenInFloats
     unpacked = struct.unpack(fmt, payload)
-    loco = self.locoMap[locoId]
     loco.updateData(unpacked)
     self.onData(loco)
 
   def onReceive(self, fromNode, payload):
-    locoId = fromNode
+    locoAddr = str(fromNode)
     packetType = payload[0]
     payload = payload[1:]
     if (packetType == ord(packetAuth)):
-      self.authorizePacket(locoId, payload)
+      self.authorizePacket(locoAddr, payload)
     else:
-      if locoId in self.locoMap:
-        self.normalPacket(locoId, payload)
-        self.send(locoId)
+      if locoAddr in self.locoMap:
+        loco = self.locoMap[locoAddr]
+        self.normalPacket(loco, payload)
+        self.send(loco, fromNode)
       else:
-        self.askToAuthorize(locoId)
+        self.askToAuthorize(fromNode)
 
 class CommsMqtt:
   def __init__(self, comms):
