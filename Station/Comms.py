@@ -7,8 +7,12 @@ import Wireless
 import paho.mqtt.client as mqtt
 from Config import MQTT_PREFIX_WEB, MQTT_PREFIX_JMRI
 
-packetAuth = 'r'
-packetNorm = 'n'
+packetLocoAuth = 'r'
+packetLocoNorm = 'n'
+packetThrAuth = 's'
+packetThrNorm = 'p'
+
+
 commandThrottle  = 't'
 commandDirection = 'd'
 commandLight     = 'l'
@@ -22,6 +26,7 @@ class Loco:
     self.fields = fields
     self.data = []
     self.queue = queue.Queue()
+    self.throttles = {}
 
   def toFloat(self, value):
     try:
@@ -47,6 +52,15 @@ class Loco:
   def updateData(self, data):
     self.data = data
 
+class Throttle:
+  def __init__(self, addr):
+    self.addr = addr
+    self.subscribed = None
+
+  def subscribe(self, locoAddr):
+    self.subscribed = locoAddr
+
+
 class Comms:
   def __init__(self, wireless):
     self.run = True
@@ -54,8 +68,10 @@ class Comms:
     self.wireless = wireless
     self.wireless.setOnReceive(self.onReceive)
     self.locoMap = {}
+    self.thrMap = {}
     self.onAuth = None
     self.onData = None
+    self.slow = 10
 
   def start(self):
     self.wireless.start()
@@ -67,9 +83,9 @@ class Comms:
     if addr in self.locoMap:
       return self.locoMap[addr]
 
-  def askToAuthorize(self, locoAddr):
-    logging.info(f"Unknown id {locoAddr}, ask to authorize")
-    payload = struct.pack('<bf', ord(packetAuth), 0)
+  def askLocoToAuthorize(self, locoAddr):
+    logging.info(f"Unknown Loco {locoAddr}, ask to authorize")
+    payload = struct.pack('<bf', ord(packetLocoAuth), 0)
     self.wireless.write(locoAddr, payload)
 
   def send(self, loco, toAddr):
@@ -78,35 +94,84 @@ class Comms:
     if self.wireless.write(toAddr, payload):
       loco.pop()
 
-  def authorizePacket(self, locoAddr, payload):
+  def authorizeLoco(self, addr, payload):
     size = len(payload)
     unpacked = struct.unpack(f'<{size}s', payload)
     unpacked = unpacked[0].decode()
     fields = unpacked.split()
-    loco = Loco(locoAddr, fields[1], fields[2:])
-    self.locoMap[locoAddr] = loco
+    loco = Loco(addr, fields[1], fields[2:])
+    self.locoMap[addr] = loco
     self.onAuth(loco)
+
+  def askThrToAuthorize(self, addr):
+    # logging.info(f"Unknown Thr {addr}, ask to authorize")
+    payload = packetThrAuth + ' '
+    for k, v in self.locoMap.items():
+      payload += f'{v.addr} {v.name} '
+    size = len(payload) - 1
+    logging.info(f"Unknown Thr {addr}, ask to authorize, payload {payload}")
+    packed = struct.pack(f'<{size}s', bytes(payload, 'utf-8'))
+    self.wireless.write(addr, packed)
+
+  def authorizeThr(self, addr, payload):
+    logging.info(f"Authorize/subsribe from {addr} in map {self.thrMap}");
+    thr = Throttle(addr)
+    self.thrMap[addr] = thr
+    unpacked = struct.unpack('<B', payload)
+    thr.subscribed = str(unpacked[0])
+    logging.info(f"Subsribe from {addr} to {thr.subscribed}");
+    if thr.subscribed in self.locoMap:
+      loco = self.locoMap[thr.subscribed]
+      loco.throttles[addr] = thr
+      logging.info(f"Subsribe2. {loco.throttles}");
 
   def normalPacket(self, loco, payload):
     lenInFloats = int(len(payload) / 4)
-    fmt = '<' + 'f'*lenInFloats
-    unpacked = struct.unpack(fmt, payload)
+    fmt = 'f'*lenInFloats
+    unpacked = struct.unpack('<' + fmt, payload)
     loco.updateData(unpacked)
     self.onData(loco)
+    if self.slow == 0:
+      for addr, t in loco.throttles.items():
+        logging.info(f"Loco data forward to {addr},  {unpacked}")
+        packed = struct.pack('<b' + fmt, ord(packetLocoNorm), *unpacked)
+        self.wireless.write(int(addr), packed)
+        self.slow = 10
+    else:
+      self.slow -= 1
+
+  def handleThrottle(self, thr, payload):
+    logging.info(f"handleThrottle {thr.addr}/{thr.subscribed}")
+    if thr.subscribed:
+      toAddr = int(thr.subscribed)
+      unpacked = struct.unpack('<bf', payload)
+      res = self.wireless.write(toAddr, payload)
+      logging.info(f"Forward command to {toAddr}:{unpacked}, {res}")
+      #todo sent to MQTT
 
   def onReceive(self, fromNode, payload):
-    locoAddr = str(fromNode)
+    addr = str(fromNode)
     packetType = payload[0]
     payload = payload[1:]
-    if (packetType == ord(packetAuth)):
-      self.authorizePacket(locoAddr, payload)
-    else:
-      if locoAddr in self.locoMap:
-        loco = self.locoMap[locoAddr]
+    if (packetType == ord(packetLocoNorm)):
+      if addr in self.locoMap:
+        loco = self.locoMap[addr]
         self.normalPacket(loco, payload)
         self.send(loco, fromNode)
       else:
-        self.askToAuthorize(fromNode)
+        self.askLocoToAuthorize(fromNode)
+    elif (packetType == ord(packetThrNorm)):
+      if addr in self.thrMap:
+        thr = self.thrMap[addr]
+        self.handleThrottle(thr, payload)
+      else:
+        self.askThrToAuthorize(fromNode)
+    elif (packetType == ord(packetLocoAuth)):
+      self.authorizeLoco(addr, payload)
+    elif (packetType == ord(packetThrAuth)):
+      self.authorizeThr(addr, payload)
+    else:
+      logging.info(f"Unknown packet type: {packetType}")
 
 class CommsMqtt:
   def __init__(self, comms):
@@ -127,7 +192,7 @@ class CommsMqtt:
   def onData(self, loco):
     nice = [F'{x:.2f}' for x in loco.data]
     nice = ' '.join(nice)
-    logging.info(f"Loco[{loco.addr}]: {nice}")
+    # logging.info(f"Loco[{loco.addr}]: {nice}")
     self.mqttClient.publish(f"{MQTT_PREFIX_WEB}/{loco.addr}/data", f"{nice}")
 
   def on_message(self, client, userdata, msg):
