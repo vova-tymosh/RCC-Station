@@ -55,10 +55,11 @@ class Loco:
 class Throttle:
   def __init__(self, addr):
     self.addr = addr
-    self.subscribed = None
+    self.subscribedAddr = None
+    self.subscribedLoco = None
 
   def subscribe(self, locoAddr):
-    self.subscribed = locoAddr
+    self.subscribedAddr = locoAddr
 
 
 class Comms:
@@ -71,7 +72,7 @@ class Comms:
     self.thrMap = {}
     self.onAuth = None
     self.onData = None
-    self.slow = 10
+    self.slow = 0
 
   def start(self):
     self.wireless.start()
@@ -118,16 +119,17 @@ class Comms:
     thr = Throttle(addr)
     self.thrMap[addr] = thr
     unpacked = struct.unpack('<B', payload)
-    thr.subscribed = str(unpacked[0])
-    logging.info(f"Subsribe from {addr} to {thr.subscribed}");
-    if thr.subscribed in self.locoMap:
-      loco = self.locoMap[thr.subscribed]
+    thr.subscribedAddr = str(unpacked[0])
+    logging.info(f"Subsribe from {addr} to {thr.subscribedAddr}");
+    if thr.subscribedAddr in self.locoMap:
+      loco = self.locoMap[thr.subscribedAddr]
       loco.throttles[addr] = thr
+      thr.subscribedLoco = loco
       logging.info(f"Subsribe2. {loco.throttles}");
 
   def normalPacket(self, loco, payload):
-    lenInFloats = int(len(payload) / 4)
-    fmt = 'f'*lenInFloats
+    lenInFloats = int(len(payload) / 2)
+    fmt = 'h'*lenInFloats
     unpacked = struct.unpack('<' + fmt, payload)
     loco.updateData(unpacked)
     self.onData(loco)
@@ -136,17 +138,21 @@ class Comms:
         logging.info(f"Loco data forward to {addr},  {unpacked}")
         packed = struct.pack('<b' + fmt, ord(packetLocoNorm), *unpacked)
         self.wireless.write(int(addr), packed)
-        self.slow = 10
+        self.slow = 0
     else:
       self.slow -= 1
 
   def handleThrottle(self, thr, payload):
-    logging.info(f"handleThrottle {thr.addr}/{thr.subscribed}")
-    if thr.subscribed:
-      toAddr = int(thr.subscribed)
-      unpacked = struct.unpack('<bf', payload)
-      res = self.wireless.write(toAddr, payload)
-      logging.info(f"Forward command to {toAddr}:{unpacked}, {res}")
+    logging.info(f"handleThrottle {thr.addr}/{thr.subscribedAddr}")
+    if thr.subscribedAddr:
+      toAddr = int(thr.subscribedAddr)
+      toLoco = thr.subscribedLoco
+      cmd, value = struct.unpack('<bf', payload)
+      cmd = chr(cmd)
+      # res = self.wireless.write(toAddr, payload)
+      toLoco.push(cmd, value)
+
+      logging.info(f"Forward command to {toAddr}:{cmd}/{value}")
       #todo sent to MQTT
 
   def onReceive(self, fromNode, payload):
@@ -192,7 +198,7 @@ class CommsMqtt:
   def onData(self, loco):
     nice = [F'{x:.2f}' for x in loco.data]
     nice = ' '.join(nice)
-    # logging.info(f"Loco[{loco.addr}]: {nice}")
+    logging.info(f"Loco[{loco.addr}]: {nice}")
     self.mqttClient.publish(f"{MQTT_PREFIX_WEB}/{loco.addr}/data", f"{nice}")
 
   def on_message(self, client, userdata, msg):
