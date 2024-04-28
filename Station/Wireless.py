@@ -16,12 +16,16 @@ class Wireless:
     self.run = True
     self.node = 0
     self.onReceive = None
+    self.onLoop = None
     self.radio = RF24(cePin, csnPin)
     self.network = RF24Network(self.radio)
     self.thread = threading.Thread(target=self.commThread)
 
   def setOnReceive(self, onReceive):
     self.onReceive = onReceive
+
+  def setOnLoop(self, onLoop):
+    self.onLoop = onLoop
 
   def start(self):
     if not self.radio.begin():
@@ -47,6 +51,8 @@ class Wireless:
           header, payload = self.network.read()
           if len(payload) > 0 and self.onReceive:
             self.onReceive(header.from_node, payload)
+        if self.onLoop:
+          self.onLoop()
     finally:
       self.radio.powerDown()
 

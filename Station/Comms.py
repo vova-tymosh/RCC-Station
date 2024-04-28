@@ -68,6 +68,7 @@ class Comms:
     self.node = 0
     self.wireless = wireless
     self.wireless.setOnReceive(self.onReceive)
+    self.wireless.setOnLoop(self.onLoop)
     self.locoMap = {}
     self.thrMap = {}
     self.onAuth = None
@@ -163,7 +164,6 @@ class Comms:
       if addr in self.locoMap:
         loco = self.locoMap[addr]
         self.normalPacket(loco, payload)
-        self.send(loco, fromNode)
       else:
         self.askLocoToAuthorize(fromNode)
     elif (packetType == ord(packetThrNorm)):
@@ -178,6 +178,13 @@ class Comms:
       self.authorizeThr(addr, payload)
     else:
       logging.info(f"Unknown packet type: {packetType}")
+
+  def onLoop(self):
+    for addr, loco in self.locoMap.items():
+      if not loco.queue.empty():
+        self.send(loco, int(addr))
+
+
 
 class CommsMqtt:
   def __init__(self, comms):
