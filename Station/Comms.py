@@ -222,7 +222,7 @@ class CommsMqtt:
           if payload == 'FORWARD':
             loco.push(commandDirection, 1)
           elif payload == 'REVERSE':
-            loco.push(commandDirection, -1)
+            loco.push(commandDirection, 2)
           else:
             loco.push(commandDirection, 0)
         elif subTopic == 'function/0':
