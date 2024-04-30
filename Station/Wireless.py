@@ -7,7 +7,7 @@
 #   Python wrapper:       https://nrf24.github.io/RF24/md_docs_python_wrapper.html
 #
 import threading
-from RF24 import RF24, RF24_PA_HIGH, RF24_250KBPS
+from RF24 import RF24, RF24_PA_LOW, RF24_PA_HIGH, RF24_250KBPS
 from RF24Network import RF24Network, RF24NetworkHeader
 
 
@@ -30,7 +30,7 @@ class Wireless:
   def start(self):
     if not self.radio.begin():
       raise RuntimeError("*** Radio hardware is not responding")
-    self.radio.setPALevel(RF24_PA_HIGH)
+    self.radio.setPALevel(RF24_PA_LOW)
     self.radio.setDataRate(RF24_250KBPS)
     self.network.begin(self.node)
     self.thread.start()
