@@ -130,7 +130,7 @@ class Comms:
 
   def normalPacket(self, loco, payload):
     lenInFloats = int(len(payload) / 2)
-    fmt = 'h'*lenInFloats
+    fmt = 'H'*lenInFloats
     unpacked = struct.unpack('<' + fmt, payload)
     loco.updateData(unpacked)
     self.onData(loco)
