@@ -9,7 +9,8 @@ from Config import MQTT_PREFIX_WEB, MQTT_PREFIX_JMRI
 
 packetLocoAuth = 'r'
 packetLocoNorm = 'n'
-packetThrAuth = 's'
+packetThrAuth = 'q'
+packetThrSub = 's'
 packetThrNorm = 'p'
 
 
@@ -86,7 +87,7 @@ class Comms:
       return self.locoMap[addr]
 
   def askLocoToAuthorize(self, locoAddr):
-    logging.info(f"Unknown Loco {locoAddr}, ask to authorize")
+    logging.warning(f"Unknown Loco {locoAddr}, ask to authorize")
     payload = struct.pack('<bf', ord(packetLocoAuth), 0)
     self.wireless.write(locoAddr, payload)
 
@@ -106,27 +107,30 @@ class Comms:
     self.onAuth(loco)
 
   def askThrToAuthorize(self, addr):
-    # logging.info(f"Unknown Thr {addr}, ask to authorize")
-    payload = packetThrAuth + ' '
-    for k, v in self.locoMap.items():
-      payload += f'{v.addr} {v.name} '
+    payload = packetThrAuth
+    addrList = list(self.locoMap.keys())
+    addrList.sort()
+    for i in addrList:
+      payload += f'{i} {self.locoMap[i].name} '
     size = len(payload) - 1
-    logging.info(f"Unknown Thr {addr}, ask to authorize, payload {payload}")
+    logging.warning(f"Unknown Thr {addr}, ask to authorize, payload {payload}")
     packed = struct.pack(f'<{size}s', bytes(payload, 'utf-8'))
     self.wireless.write(addr, packed)
 
   def authorizeThr(self, addr, payload):
-    logging.info(f"Authorize/subsribe from {addr} in map {self.thrMap}");
-    thr = Throttle(addr)
-    self.thrMap[addr] = thr
-    unpacked = struct.unpack('<B', payload)
+    if addr not in self.thrMap:
+      self.thrMap[addr] = Throttle(addr)
+    thr = self.thrMap[addr]
+    unpacked = struct.unpack('<Bf', payload)
     thr.subscribedAddr = str(unpacked[0])
-    logging.info(f"Subsribe from {addr} to {thr.subscribedAddr}");
+    logging.warning(f"Subsribe from {addr} to {thr.subscribedAddr}");
+    for k, v in self.locoMap.items():
+      if addr in v.throttles:
+        del v.throttles[addr]
     if thr.subscribedAddr in self.locoMap:
       loco = self.locoMap[thr.subscribedAddr]
       loco.throttles[addr] = thr
       thr.subscribedLoco = loco
-      logging.info(f"Subsribe2. {loco.throttles}");
 
   def normalPacket(self, loco, payload):
     lenInFloats = int(len(payload) / 2)
@@ -144,17 +148,14 @@ class Comms:
       self.slow -= 1
 
   def handleThrottle(self, thr, payload):
-    logging.info(f"handleThrottle {thr.addr}/{thr.subscribedAddr}")
     if thr.subscribedAddr:
       toAddr = int(thr.subscribedAddr)
       toLoco = thr.subscribedLoco
-      cmd, value = struct.unpack('<bf', payload)
-      cmd = chr(cmd)
-      # res = self.wireless.write(toAddr, payload)
-      toLoco.push(cmd, value)
-
-      logging.info(f"Forward command to {toAddr}:{cmd}/{value}")
-      #todo sent to MQTT
+      if toLoco:
+        cmd, value = struct.unpack('<bf', payload)
+        cmd = chr(cmd)
+        toLoco.push(cmd, value)
+        logging.info(f"Forward command to {toAddr}: {cmd}/{value}")
 
   def onReceive(self, fromNode, payload):
     addr = str(fromNode)
@@ -175,9 +176,11 @@ class Comms:
     elif (packetType == ord(packetLocoAuth)):
       self.authorizeLoco(addr, payload)
     elif (packetType == ord(packetThrAuth)):
+      self.askThrToAuthorize(fromNode)
+    elif (packetType == ord(packetThrSub)):
       self.authorizeThr(addr, payload)
     else:
-      logging.info(f"Unknown packet type: {packetType}")
+      logging.error(f"Unknown packet type: {packetType}")
 
   def onLoop(self):
     for addr, loco in self.locoMap.items():
@@ -199,7 +202,7 @@ class CommsMqtt:
 
   def onAuth(self, loco):
     nice = ' '.join(loco.fields)
-    logging.info(f"New Loco: {MQTT_PREFIX_WEB}/{loco.addr}/fileds - {loco.name} {nice}")
+    logging.warning(f"New Loco: {MQTT_PREFIX_WEB}/{loco.addr}/fileds - {loco.name} {nice}")
     self.mqttClient.publish(f"{MQTT_PREFIX_WEB}/{loco.addr}/fileds", f"{loco.name} {nice}", retain=True)
 
   def onData(self, loco):
@@ -234,7 +237,7 @@ class CommsMqtt:
           loco.push(payload[0], payload[1:])
 
 
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.WARNING,
                     format='%(asctime)s %(message)s',
                     filename='comms.log',
                     filemode='a')
