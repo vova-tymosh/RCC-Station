@@ -16,7 +16,7 @@ packetThrNorm = 'p'
 
 commandThrottle  = 't'
 commandDirection = 'd'
-commandLight     = 'l'
+commandLight     = '@'
 
 class Loco:
   def __init__(self, addr, name, fields):

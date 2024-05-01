@@ -72,8 +72,6 @@ content = html.Div([
   dbc.Row([
     dbc.Col([ dbc.Button('Light on', id='liton', n_clicks=0, style = {'margin-left': '2rem'}),
               dbc.Button('Light off', id='litoff', n_clicks=0, style = {'margin-left': '1rem'}),
-              dbc.Button('Acc', id='acc', n_clicks=0, style = {'margin-left': '1rem'}),
-              dbc.Button('Dec', id='dec', n_clicks=0, style = {'margin-left': '1rem'}),
               html.Div(id='container-buttons'), ],
     )
   ]),
@@ -96,10 +94,6 @@ def on_button_click(b1, b2, b3, b4):
   elif 'litoff' == changed_id:
     logging.error('Lights off')
     command.get().setFunction(0, 'OFF')
-  elif 'acc' == changed_id:
-    logging.error('Acc')
-  elif 'dec' == changed_id:
-    logging.error('Dec')
 
 @app.callback(
   Output('container-command', 'children'),
