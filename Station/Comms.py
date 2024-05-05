@@ -105,6 +105,8 @@ class Comms:
     loco = Loco(addr, fields[1], fields[2:])
     self.locoMap[addr] = loco
     self.onAuth(loco)
+    for k, v in self.thrMap.items():
+      self.askThrToAuthorize(int(v.addr))
 
   def askThrToAuthorize(self, addr):
     payload = packetThrAuth
