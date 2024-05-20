@@ -74,7 +74,6 @@ class Comms:
     self.thrMap = {}
     self.onAuth = None
     self.onData = None
-    self.slow = 0
 
   def start(self):
     self.wireless.start()
@@ -85,6 +84,14 @@ class Comms:
   def get(self, addr):
     if addr in self.locoMap:
       return self.locoMap[addr]
+
+  def safeUnpack(self, fmt, data):
+    unpacked = []
+    try:
+      unpacked = struct.unpack(fmt, data)
+    except:
+      pass
+    return unpacked
 
   def askLocoToAuthorize(self, locoAddr):
     logging.warning(f"Unknown Loco {locoAddr}, ask to authorize")
@@ -99,14 +106,15 @@ class Comms:
 
   def authorizeLoco(self, addr, payload):
     size = len(payload)
-    unpacked = struct.unpack(f'<{size}s', payload)
-    unpacked = unpacked[0].decode()
-    fields = unpacked.split()
-    loco = Loco(addr, fields[1], fields[2:])
-    self.locoMap[addr] = loco
-    self.onAuth(loco)
-    for k, v in self.thrMap.items():
-      self.askThrToAuthorize(int(v.addr))
+    unpacked = self.safeUnpack(f'<{size}s', payload)
+    if len(unpacked) >= 1:
+      unpacked = unpacked[0].decode()
+      fields = unpacked.split()
+      loco = Loco(addr, fields[1], fields[2:])
+      self.locoMap[addr] = loco
+      self.onAuth(loco)
+      for k, v in self.thrMap.items():
+        self.askThrToAuthorize(int(v.addr))
 
   def askThrToAuthorize(self, addr):
     payload = packetThrAuth
@@ -123,41 +131,41 @@ class Comms:
     if addr not in self.thrMap:
       self.thrMap[addr] = Throttle(addr)
     thr = self.thrMap[addr]
-    unpacked = struct.unpack('<Bf', payload)
-    thr.subscribedAddr = str(unpacked[0])
-    logging.warning(f"Subsribe from {addr} to {thr.subscribedAddr}");
-    for k, v in self.locoMap.items():
-      if addr in v.throttles:
-        del v.throttles[addr]
-    if thr.subscribedAddr in self.locoMap:
-      loco = self.locoMap[thr.subscribedAddr]
-      loco.throttles[addr] = thr
-      thr.subscribedLoco = loco
+    unpacked = self.safeUnpack('<Bf', payload)
+    if len(unpacked) > 0:
+      thr.subscribedAddr = str(unpacked[0])
+      logging.warning(f"Subsribe from {addr} to {thr.subscribedAddr}");
+      for k, v in self.locoMap.items():
+        if addr in v.throttles:
+          del v.throttles[addr]
+      if thr.subscribedAddr in self.locoMap:
+        loco = self.locoMap[thr.subscribedAddr]
+        loco.throttles[addr] = thr
+        thr.subscribedLoco = loco
 
   def normalPacket(self, loco, payload):
     lenInFloats = int(len(payload) / 2)
-    fmt = 'H'*lenInFloats
-    unpacked = struct.unpack('<' + fmt, payload)
-    loco.updateData(unpacked)
-    self.onData(loco)
-    if self.slow == 0:
+    if lenInFloats > 0:
+      fmt = 'H'*lenInFloats
+      unpacked = self.safeUnpack('<' + fmt, payload)
+      loco.updateData(unpacked)
+      self.onData(loco)
       for addr, t in loco.throttles.items():
         logging.info(f"Loco data forward to {addr},  {unpacked}")
         packed = struct.pack('<b' + fmt, ord(packetLocoNorm), *unpacked)
         self.wireless.write(int(addr), packed)
-        self.slow = 0
-    else:
-      self.slow -= 1
 
   def handleThrottle(self, thr, payload):
     if thr.subscribedAddr:
       toAddr = int(thr.subscribedAddr)
       toLoco = thr.subscribedLoco
       if toLoco:
-        cmd, value = struct.unpack('<bf', payload)
-        cmd = chr(cmd)
-        toLoco.push(cmd, value)
-        logging.info(f"Forward command to {toAddr}: {cmd}/{value}")
+        unpacked = self.safeUnpack('<bf', payload)
+        if len(unpacked) == 2:
+          cmd, value = unpacked
+          cmd = chr(cmd)
+          toLoco.push(cmd, value)
+          logging.info(f"Forward command to {toAddr}: {cmd}/{value}")
 
   def onReceive(self, fromNode, payload):
     addr = str(fromNode)
