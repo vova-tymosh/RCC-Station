@@ -144,16 +144,18 @@ class Comms:
         thr.subscribedLoco = loco
 
   def normalPacket(self, loco, payload):
-    lenInFloats = int(len(payload) / 2)
-    if lenInFloats > 0:
-      fmt = 'H'*lenInFloats
-      unpacked = self.safeUnpack('<' + fmt, payload)
+    minFmt = '<BIIHH'
+    minSize = struct.calcsize(minFmt)
+    if len(payload) > minSize:
+      rest = len(payload) - minSize
+      fmt = minFmt + 'B'*rest
+      unpacked = self.safeUnpack(fmt, payload)
+      unpacked = unpacked[1:]
       loco.updateData(unpacked)
       self.onData(loco)
       for addr, t in loco.throttles.items():
         logging.info(f"Loco data forward to {addr},  {unpacked}")
-        packed = struct.pack('<b' + fmt, ord(packetLocoNorm), *unpacked)
-        self.wireless.write(int(addr), packed)
+        self.wireless.write(int(addr), payload)
 
   def handleThrottle(self, thr, payload):
     if thr.subscribedAddr:
@@ -170,7 +172,6 @@ class Comms:
   def onReceive(self, fromNode, payload):
     addr = str(fromNode)
     packetType = payload[0]
-    payload = payload[1:]
     if (packetType == ord(packetLocoNorm)):
       if addr in self.locoMap:
         loco = self.locoMap[addr]
@@ -180,15 +181,15 @@ class Comms:
     elif (packetType == ord(packetThrNorm)):
       if addr in self.thrMap:
         thr = self.thrMap[addr]
-        self.handleThrottle(thr, payload)
+        self.handleThrottle(thr, payload[1:])
       else:
         self.askThrToAuthorize(fromNode)
     elif (packetType == ord(packetLocoAuth)):
-      self.authorizeLoco(addr, payload)
+      self.authorizeLoco(addr, payload[1:])
     elif (packetType == ord(packetThrAuth)):
       self.askThrToAuthorize(fromNode)
     elif (packetType == ord(packetThrSub)):
-      self.authorizeThr(addr, payload)
+      self.authorizeThr(addr, payload[1:])
     else:
       logging.error(f"Unknown packet type: {packetType}")
 
@@ -247,7 +248,7 @@ class CommsMqtt:
           loco.push(payload[0], payload[1:])
 
 
-logging.basicConfig(level=logging.WARNING,
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(message)s',
                     filename='comms.log',
                     filemode='a')
