@@ -19,9 +19,11 @@ commandDirection = 'd'
 commandLight     = '@'
 
 class Loco:
-  def __init__(self, addr, name, fields):
+  def __init__(self, addr, version, fmt, name, fields):
     self.cmd = 't'
     self.value = 0.0
+    self.version = version
+    self.fmt = fmt
     self.addr = addr
     self.name = name
     self.fields = fields
@@ -105,12 +107,9 @@ class Comms:
       loco.pop()
 
   def authorizeLoco(self, addr, payload):
-    size = len(payload)
-    unpacked = self.safeUnpack(f'<{size}s', payload)
-    if len(unpacked) >= 1:
-      unpacked = unpacked[0].decode()
-      fields = unpacked.split()
-      loco = Loco(addr, fields[1], fields[2:])
+    fields = payload.decode().split()
+    if len(fields) > 4:
+      loco = Loco(addr = addr, version = fields[0], fmt = fields[1], name = fields[3], fields = fields[4:])
       self.locoMap[addr] = loco
       self.onAuth(loco)
       for k, v in self.thrMap.items():
@@ -144,11 +143,9 @@ class Comms:
         thr.subscribedLoco = loco
 
   def normalPacket(self, loco, payload):
-    minFmt = '<BIIHH'
-    minSize = struct.calcsize(minFmt)
-    if len(payload) > minSize:
-      rest = len(payload) - minSize
-      fmt = minFmt + 'B'*rest
+    fmt = '<' + loco.fmt
+    size = struct.calcsize(fmt)
+    if len(payload) >= size:
       unpacked = self.safeUnpack(fmt, payload)
       unpacked = unpacked[1:]
       loco.updateData(unpacked)
@@ -213,7 +210,7 @@ class CommsMqtt:
 
   def onAuth(self, loco):
     nice = ' '.join(loco.fields)
-    logging.warning(f"New Loco: {MQTT_PREFIX_WEB}/{loco.addr}/fileds - {loco.name} {nice}")
+    logging.warning(f"New Loco: v{loco.version} {MQTT_PREFIX_WEB}/{loco.addr}/fileds - {loco.name} {nice}")
     self.mqttClient.publish(f"{MQTT_PREFIX_WEB}/{loco.addr}/fileds", f"{loco.name} {nice}", retain=True)
 
   def onData(self, loco):
