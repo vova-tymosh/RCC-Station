@@ -107,6 +107,11 @@ class Comms:
       loco.pop()
 
   def authorizeLoco(self, addr, payload):
+    #todo
+    #   File "/home/vova/Station/Comms.py", line 110, in authorizeLoco
+    # fields = payload.decode().split()
+    # UnicodeDecodeError: 'utf-8' codec can't decode byte 0xee in position 36: invalid continuation byte
+
     fields = payload.decode().split()
     if len(fields) > 4:
       loco = Loco(addr = addr, version = fields[0], fmt = fields[1], name = fields[3], fields = fields[4:])
