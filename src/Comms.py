@@ -362,7 +362,7 @@ class TransportNrf:
         self.wireless.onReceive = self.onReceive
 
     def write(self, addr, message):
-        logging.debug(f"[NF] >: {addr}: {message}")
+        logging.debug(f"[NF] >: {addr}/{message}")
         self.wireless.write(addr, message)
 
     def writeToSubsribed(self, addr, message):
@@ -395,7 +395,7 @@ class TransportNrf:
         value = int(functionId) & 0x7F
         if activate:
             value |= (1 << 7)
-        p = struct.pack('<BB', ord(CMD_GET_FUNCTION), value)
+        p = struct.pack('<BB', ord(CMD_SET_FUNCTION), value)
         self.write(addr, p)
 
     def getValue(self, addr, value):
@@ -480,15 +480,17 @@ class TransportMqtt:
     def __init__(self):
         self.mqttClient = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, MQTT_NODE_NAME)
         self.mqttClient.on_message = self.onReceive
+        self.cache = ""
 
     def start(self):
         self.mqttClient.connect(MQTT_BROKER)
-        options = SubscribeOptions(noLocal = True)
+        options = SubscribeOptions(qos = 1, noLocal = True)
         self.mqttClient.subscribe(f'{mqPrefix}/#', options=options)
         self.mqttClient.loop_forever()
 
     def write(self, topic, message, retain = False):
         logging.info(f"[MQ] >: {topic} {message}")
+        self.cache = f"{topic} {message}"
         self.mqttClient.publish(topic, message, retain)
 
     def processIntro(self, addr, message):
@@ -537,6 +539,9 @@ class TransportMqtt:
             return
 
         message = str(msg.payload, 'UTF-8')
+        cache = f"{msg.topic} {message}"
+        if cache == self.cache:
+            return
         logging.debug(f"[MQ] <: {msg.topic} {message}")
         addr, action = topic.groups()
 
@@ -550,7 +555,11 @@ class TransportMqtt:
         elif action == mqGetFunction:
             nrf.getFunction(addr, message)
         elif action.startswith(mqSetFunction):
-            nrf.setFunction(addr, action.split('/')[1], message == "ON")
+            try:
+                functionId = int(action.split('/')[1])
+                nrf.setFunction(addr, functionId, message == "ON")
+            except:
+                pass
         elif action == mqGetValue:
             nrf.getValue(addr, message)
         elif action == mqListValue:
