@@ -331,15 +331,18 @@ functionON = "ON";
 
 
 CMD_INTRO = 'A';
-CMD_HEARTBEAT = 'H';
+CMD_SUB = 'B';
+CMD_LIST_CAB = 'C';
+CMD_HEARTBEAT = 'H'
 
-CMD_THROTTLE = 'T';
-CMD_DIRECTION = 'D';
-CMD_SET_FUNCTION = 'F';
-CMD_GET_FUNCTION = 'P';
-CMD_SET_VALUE = 'S';
-CMD_GET_VALUE = 'G';
-CMD_LIST_VALUE = 'L';
+
+CMD_THROTTLE = 'T'
+CMD_DIRECTION = 'D'
+CMD_SET_FUNCTION = 'F'
+CMD_GET_FUNCTION = 'P'
+CMD_SET_VALUE = 'S'
+CMD_GET_VALUE = 'G'
+CMD_LIST_VALUE = 'L'
 
 
 MQTT_NODE_NAME = 'RCC_Station'
@@ -375,7 +378,18 @@ class TransportNrf:
 
     def parseIntro(self, message):
         fields = message.split()
-        return {"Version": fields[0], "Format" : fields[1]}
+        return {"Version": fields[0], "Format": fields[1], "Addr": fields[2], "Name": fields[3]}
+
+    def processListCab(self, addr):
+        p = ' '.join( [f'{addr} {fields["Name"]}' for addr, fields in self.known.items()] )
+        p = struct.pack(f'<B{len(p)}s', ord(CMD_LIST_CAB), p.encode())
+        self.write(addr, p)        
+
+    def processSub(self, addr, subTo):
+        addr = int(addr)
+        subTo = int(subTo)
+        self.subscription[addr] = subTo
+        self.subscription[subTo] = addr
 
     def setThrottle(self, addr, value):
         p = struct.pack('<BB', ord(CMD_THROTTLE), value)
@@ -433,6 +447,10 @@ class TransportNrf:
             mq.processIntro(addr, m)
         elif addr not in self.known:
             self.askToIntro(addr)
+        elif packetType == CMD_LIST_CAB:
+            self.processListCab(addr)
+        elif packetType == CMD_SUB:
+            self.processSub(addr, message[1])
         elif packetType == CMD_HEARTBEAT:
             fmt = '<' + self.known[addr]["Format"];
             size = struct.calcsize(fmt)
