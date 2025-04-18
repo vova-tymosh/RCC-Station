@@ -22,7 +22,7 @@ MQ_SET_VALUE = "value/"
 
 MQ_DIRECTIONS = ["REVERSE", "FORWARD", "STOP", "NEUTRAL"]
 MQ_ON = "ON"
-MQ_ON = "OFF"
+MQ_OFF = "OFF"
 
 
 NRF_INTRO = 'A'
