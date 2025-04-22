@@ -17,7 +17,8 @@ MQ_HEARTBEAT_VALUES = "heartbeat/values"
 MQ_GET_FUNCTION = "function/get"
 MQ_SET_FUNCTION = "function/"
 MQ_GET_VALUE = "value/get"
-MQ_LIST_VALUE = "value/list"
+MQ_LIST_VALUE_ASK = "value/list"
+MQ_LIST_VALUE_RES = "keys"
 MQ_SET_VALUE = "value/"
 
 MQ_DIRECTIONS = ["REVERSE", "FORWARD", "STOP", "NEUTRAL"]
@@ -36,7 +37,10 @@ NRF_SET_FUNCTION = 'F'
 NRF_GET_FUNCTION = 'P'
 NRF_SET_VALUE = 'S'
 NRF_GET_VALUE = 'G'
-NRF_LIST_VALUE = 'L'
+NRF_LIST_VALUE_ASK = 'L'
+NRF_LIST_VALUE_RES = 'J'
+
+NRF_SEPARATOR = ' '
 
 MQTT_NODE_NAME = 'RCC_Station'
 MQTT_BROKER = '127.0.0.1'
@@ -58,10 +62,16 @@ class TransportNrf:
         self.wireless.onReceive = self.onReceive
 
     def write(self, addr, message):
+        addr = int(addr)
         logging.debug(f"[NF] >: {addr}/{message}")
         self.wireless.write(addr, message)
 
+    def getSubsribed(self, addr):
+        addr = int(addr)
+        return self.subscription.get(addr, 0)
+
     def writeToSubsribed(self, addr, message):
+        addr = int(addr)
         subscribed = self.subscription.get(addr, None)
         if subscribed:
             self.write(subscribed, message)
@@ -74,10 +84,11 @@ class TransportNrf:
         m = { "Type": fields[0], "Addr": fields[1], "Name": fields[2], "Version": fields[3] }
         if len(fields) > 4:
             m["Format"] = fields[4]
+        m["List"] = set()
         return m
 
     def processListCab(self, addr):
-        p = ' '.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
+        p = NRF_SEPARATOR.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
         p = struct.pack(f'<B{len(p)}s', ord(NRF_LIST_CAB), p.encode())
         self.write(addr, p)        
 
@@ -111,11 +122,17 @@ class TransportNrf:
     def getValue(self, addr, value):
         key = value.encode()
         k = len(key)        
-        p = struct.pack(f'<BB{k}sB', ord(NRF_GET_VALUE), k, key, 0)
+        p = struct.pack(f'<B{k}s', ord(NRF_GET_VALUE), key)
         self.write(addr, p)
     
-    def listValue(self, addr):
-        p = struct.pack('<BB', ord(NRF_LIST_VALUE), 0)
+    def listValueAsk(self, addr):
+        p = struct.pack('<BB', ord(NRF_LIST_VALUE_ASK), 0)
+        self.write(addr, p)
+
+    def listValueRes(self, addr, value):
+        value = value.encode()
+        s = len(value)
+        p = struct.pack('<B{s}s', ord(NRF_LIST_VALUE_RES), value)
         self.write(addr, p)
     
     def setValue(self, addr, key, value):
@@ -123,7 +140,7 @@ class TransportNrf:
         value = value.encode()
         k = len(key)
         v = len(value)
-        p = struct.pack(f'<BB{k}sB{v}sB', ord(NRF_SET_VALUE), len(key), key, 0, value, 0)
+        p = struct.pack(f'<B{k}sB{v}s', ord(NRF_SET_VALUE), key, ord(NRF_SEPARATOR), value)
         self.write(addr, p)
 
     def start(self):
@@ -137,7 +154,7 @@ class TransportNrf:
         packetType = chr(message[0])
 
         if packetType == NRF_INTRO:
-            m = str(message[2:], 'utf-8')
+            m = str(message[1:], 'utf-8')
             self.known[addr] = self.parseIntro(m)
             mq.processIntro(addr, m)
         elif addr not in self.known:
@@ -155,11 +172,15 @@ class TransportNrf:
                 mq.processHeartBeat(addr, nice)
                 self.writeToSubsribed(addr, message)
         elif packetType == NRF_THROTTLE:
-            self.writeToSubsribed(addr, message)
-            mq.setThrottle(addr, message[1])
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
+                mq.setThrottle(sub, message[1])
         elif packetType == NRF_DIRECTION:
-            self.writeToSubsribed(addr, message)
-            mq.setDirection(addr, message[1])
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
+                mq.setDirection(sub, message[1])
         elif packetType == NRF_GET_FUNCTION:
             self.writeToSubsribed(addr, message)
             mq.getFunction(addr, message[1])
@@ -168,23 +189,28 @@ class TransportNrf:
             functionId = message[1] & 0x7F
             activate = message[1] & 0x80
             mq.setFunction(addr, functionId, activate)
+        elif packetType == NRF_LIST_VALUE_ASK:
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
+                mq.listValueAsk(sub)
+        elif packetType == NRF_LIST_VALUE_RES:
+            m = str(message[1:], 'utf-8')
+            self.known[addr]["List"] |= set(m.split(NRF_SEPARATOR))
+            self.writeToSubsribed(addr, message)
+            mq.listValueRes(addr, NRF_SEPARATOR.join(list(self.known[addr]["List"])))
         elif packetType == NRF_GET_VALUE:
             self.writeToSubsribed(addr, message)
-            mq.getValue(addr, message[1])
-        elif packetType == NRF_GET_VALUE:
-            self.writeToSubsribed(addr, message)
-            k = len(message) - 3
-            unpacked = struct.unpack(f'<BB{k}sB', message)
+            k = len(message) - 2
+            unpacked = struct.unpack(f'<B{k}sB', message)
             key = unpacked[2].decode()
             mq.getValue(addr, key)
         elif packetType == NRF_SET_VALUE:
             self.writeToSubsribed(addr, message)
-            unpacked = struct.unpack('<BB', message[:2])
-            k = toInt(unpacked[1])
-            v = len(message) - 2 - k - 2
-            unpacked = struct.unpack(f'<BB{k}sB{v}sB', message)
-            key = unpacked[2].decode()
-            value = unpacked[4].decode()            
+            s = len(message) - 1
+            unpacked = struct.unpack(f'<B{s}s', message)
+            unpacked = unpacked[1].decode()
+            key, value = unpacked.split(NRF_SEPARATOR)
             mq.setValue(addr, key, value)
         else:
             logging.error(f"Unknown packet type: {packetType}")
@@ -237,10 +263,14 @@ class TransportMqtt:
         topic = f"{MQ_PREFIX}/{addr}/{MQ_GET_VALUE}"
         self.write(topic, key)
 
-    def listValue(self, addr):
-        topic = f"{MQ_PREFIX}/{addr}/{MQ_LIST_VALUE}"
+    def listValueAsk(self, addr):
+        topic = f"{MQ_PREFIX}/{addr}/{MQ_LIST_VALUE_ASK}"
         self.write(topic, "")
     
+    def listValueRes(self, addr, value):
+        topic = f"{MQ_PREFIX}/{addr}/{MQ_LIST_VALUE_RES}"
+        self.write(topic, value)
+
     def setValue(self, addr, key, value):
         topic = f"{MQ_PREFIX}/{addr}/{MQ_SET_VALUE}{key}"
         self.write(topic, value)
@@ -272,8 +302,10 @@ class TransportMqtt:
             nrf.setFunction(addr, functionId, message == MQ_ON)
         elif action == MQ_GET_VALUE:
             nrf.getValue(addr, message)
-        elif action == MQ_LIST_VALUE:
-            nrf.listValue(addr)
+        elif action == MQ_LIST_VALUE_ASK:
+            nrf.listValueAsk(addr)
+        elif action == MQ_LIST_VALUE_RES:
+            nrf.listValueRes(addr, message)
         elif action.startswith(MQ_SET_VALUE):
             nrf.setValue(addr, action.split('/')[1], message)
 
