@@ -11,15 +11,16 @@ from paho.mqtt.subscribeoptions import SubscribeOptions
 MQ_MESSAGE = re.compile("cab/(.*?)/(.*)")
 MQ_PREFIX = "cab"
 MQ_INTRO = "intro"
+MQ_HEARTBEAT_VALUES = "heartbeat/values"
+
 MQ_SET_THROTTLE = "throttle";
 MQ_SET_DIRECTION = "direction";
-MQ_HEARTBEAT_VALUES = "heartbeat/values"
 MQ_GET_FUNCTION = "function/get"
 MQ_SET_FUNCTION = "function/"
 MQ_GET_VALUE = "value/get"
+MQ_SET_VALUE = "value/"
 MQ_LIST_VALUE_ASK = "value/list"
 MQ_LIST_VALUE_RES = "keys"
-MQ_SET_VALUE = "value/"
 
 MQ_DIRECTIONS = ["REVERSE", "FORWARD", "STOP", "NEUTRAL"]
 MQ_ON = "ON"
@@ -84,7 +85,6 @@ class TransportNrf:
         m = { "Type": fields[0], "Addr": fields[1], "Name": fields[2], "Version": fields[3] }
         if len(fields) > 4:
             m["Format"] = fields[4]
-        m["List"] = set()
         return m
 
     def processListCab(self, addr):
@@ -132,7 +132,7 @@ class TransportNrf:
     def listValueRes(self, addr, value):
         value = value.encode()
         s = len(value)
-        p = struct.pack('<B{s}s', ord(NRF_LIST_VALUE_RES), value)
+        p = struct.pack(f'<B{s}s', ord(NRF_LIST_VALUE_RES), value)
         self.write(addr, p)
     
     def setValue(self, addr, key, value):
@@ -196,9 +196,8 @@ class TransportNrf:
                 mq.listValueAsk(sub)
         elif packetType == NRF_LIST_VALUE_RES:
             m = str(message[1:], 'utf-8')
-            self.known[addr]["List"] |= set(m.split(NRF_SEPARATOR))
             self.writeToSubsribed(addr, message)
-            mq.listValueRes(addr, NRF_SEPARATOR.join(list(self.known[addr]["List"])))
+            mq.listValueRes(addr, m)
         elif packetType == NRF_GET_VALUE:
             self.writeToSubsribed(addr, message)
             k = len(message) - 2
