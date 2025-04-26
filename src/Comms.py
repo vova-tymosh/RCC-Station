@@ -42,6 +42,8 @@ NRF_LIST_VALUE_ASK = 'L'
 NRF_LIST_VALUE_RES = 'J'
 
 NRF_SEPARATOR = ' '
+NRF_TYPE_LOCO = 'L'
+NRF_TYPE_KEYPAD = 'K'
 
 MQTT_NODE_NAME = 'RCC_Station'
 MQTT_BROKER = '127.0.0.1'
@@ -54,6 +56,11 @@ def toInt(value):
     except:
         return 0
 
+def toStr(value):
+    try:
+        return str(value, 'utf-8')
+    except:
+        return ''
 
 class TransportNrf:
     def __init__(self):
@@ -70,6 +77,15 @@ class TransportNrf:
     def getSubsribed(self, addr):
         addr = int(addr)
         return self.subscription.get(addr, 0)
+
+    def getProperForward(self, addr):
+        k = self.known.get(addr, 0)
+        sub = self.getSubsribed(addr)
+        if k:
+            if k["Type"] == NRF_TYPE_KEYPAD:
+                return sub
+            else:
+                return addr
 
     def writeToSubsribed(self, addr, message):
         addr = int(addr)
@@ -154,7 +170,7 @@ class TransportNrf:
         packetType = chr(message[0])
 
         if packetType == NRF_INTRO:
-            m = str(message[1:], 'utf-8')
+            m = toStr(message[1:])
             self.known[addr] = self.parseIntro(m)
             mq.processIntro(addr, m)
         elif addr not in self.known:
@@ -182,35 +198,47 @@ class TransportNrf:
                 self.write(sub, message)
                 mq.setDirection(sub, message[1])
         elif packetType == NRF_GET_FUNCTION:
-            self.writeToSubsribed(addr, message)
-            mq.getFunction(addr, message[1])
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
+            if sub:
+                mq.getFunction(addr, message[1])
         elif packetType == NRF_SET_FUNCTION:
-            self.writeToSubsribed(addr, message)
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
             functionId = message[1] & 0x7F
             activate = message[1] & 0x80
-            mq.setFunction(addr, functionId, activate)
+            fwd = self.getProperForward(addr)
+            mq.setFunction(fwd, functionId, activate)
         elif packetType == NRF_LIST_VALUE_ASK:
             sub = self.getSubsribed(addr)
             if sub:
                 self.write(sub, message)
                 mq.listValueAsk(sub)
         elif packetType == NRF_LIST_VALUE_RES:
-            m = str(message[1:], 'utf-8')
+            m = toStr(message[1:])
             self.writeToSubsribed(addr, message)
             mq.listValueRes(addr, m)
         elif packetType == NRF_GET_VALUE:
-            self.writeToSubsribed(addr, message)
-            k = len(message) - 2
-            unpacked = struct.unpack(f'<B{k}sB', message)
-            key = unpacked[2].decode()
-            mq.getValue(addr, key)
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
+            if sub:
+                k = len(message) - 2
+                unpacked = struct.unpack(f'<B{k}sB', message)
+                key = toStr(unpacked[2])
+                mq.getValue(sub, key)
         elif packetType == NRF_SET_VALUE:
-            self.writeToSubsribed(addr, message)
+            sub = self.getSubsribed(addr)
+            if sub:
+                self.write(sub, message)
             s = len(message) - 1
             unpacked = struct.unpack(f'<B{s}s', message)
-            unpacked = unpacked[1].decode()
+            unpacked = toStr(unpacked[1])
             key, value = unpacked.split(NRF_SEPARATOR)
-            mq.setValue(addr, key, value)
+            fwd = self.getProperForward(addr)
+            mq.setValue(fwd, key, value)
         else:
             logging.error(f"Unknown packet type: {packetType}")
 
