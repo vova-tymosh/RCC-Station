@@ -232,9 +232,9 @@ class TransportNrf:
             if sub:
                 self.write(sub, message)
             if sub:
-                k = len(message) - 2
-                unpacked = struct.unpack(f'<B{k}sB', message)
-                key = toStr(unpacked[2])
+                k = len(message) - 1
+                unpacked = struct.unpack(f'<B{k}s', message)
+                key = toStr(unpacked[1])
                 mq.getValue(sub, key)
         elif packetType == NRF_SET_VALUE:
             sub = self.getSubsribed(addr)
