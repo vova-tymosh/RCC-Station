@@ -96,12 +96,12 @@ class TransportNrf:
     def askToIntro(self, addr):
         self.write(addr, struct.pack('<BB', ord(NRF_INTRO), 0))
 
-    def parseIntro(self, message):
+    def processIntro(self, addr, message):
         fields = message.split()
         m = { "Type": fields[0], "Addr": fields[1], "Name": fields[2], "Version": fields[3] }
         if len(fields) > 4:
             m["Format"] = fields[4]
-        return m
+        self.known[addr] = m
 
     def processListCab(self, addr):
         p = NRF_SEPARATOR.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
@@ -113,6 +113,14 @@ class TransportNrf:
         subTo = int(subTo)
         self.subscription[addr] = subTo
         self.subscription[subTo] = addr
+
+    def processHeartbeat(self, addr, items):
+        fmt = '<' + self.known[addr]["Format"]
+        unpacked = [ord(NRF_HEARTBEAT)]
+        for i in items:
+            unpacked.append(int(i))
+        p = struct.pack(fmt, *unpacked)
+        self.writeToSubsribed(addr, p)
 
     def setThrottle(self, addr, value):
         p = struct.pack('<BB', ord(NRF_THROTTLE), value)
@@ -171,7 +179,7 @@ class TransportNrf:
 
         if packetType == NRF_INTRO:
             m = toStr(message[1:])
-            self.known[addr] = self.parseIntro(m)
+            self.processIntro(addr, m)
             mq.processIntro(addr, m)
         elif addr not in self.known:
             self.askToIntro(addr)
@@ -184,8 +192,7 @@ class TransportNrf:
             size = struct.calcsize(fmt)
             if len(message) == size:
                 unpacked = struct.unpack(fmt, message)[1:]
-                nice = ' '.join( [f'{x}' for x in unpacked] ) 
-                mq.processHeartBeat(addr, nice)
+                mq.processHeartbeat(addr, unpacked)
                 self.writeToSubsribed(addr, message)
         elif packetType == NRF_THROTTLE:
             sub = self.getSubsribed(addr)
@@ -202,7 +209,7 @@ class TransportNrf:
             if sub:
                 self.write(sub, message)
             if sub:
-                mq.getFunction(addr, message[1])
+                mq.getFunction(sub, message[1])
         elif packetType == NRF_SET_FUNCTION:
             sub = self.getSubsribed(addr)
             if sub:
@@ -263,8 +270,9 @@ class TransportMqtt:
         topic = f"{MQ_PREFIX}/{addr}/{MQ_INTRO}"
         self.write(topic, message, retain = True)
 
-    def processHeartBeat(self, addr, message):
+    def processHeartbeat(self, addr, items):
         topic = f"{MQ_PREFIX}/{addr}/{MQ_HEARTBEAT_VALUES}"
+        message = NRF_SEPARATOR.join( [f'{x}' for x in items] )
         self.write(topic, message)
 
     def setThrottle(self, addr, value):
@@ -302,7 +310,6 @@ class TransportMqtt:
         topic = f"{MQ_PREFIX}/{addr}/{MQ_SET_VALUE}{key}"
         self.write(topic, value)
 
-
     def onReceive(self, client, userdata, msg):
         topic = MQ_MESSAGE.match(msg.topic)
         if (topic is None):
@@ -315,7 +322,11 @@ class TransportMqtt:
         logging.debug(f"[MQ] <: {msg.topic} {message}")
         addr, action = topic.groups()
 
-        if action == MQ_SET_THROTTLE:
+        if action == MQ_INTRO:
+            nrf.processIntro(addr, message)
+        elif action == MQ_HEARTBEAT_VALUES:
+            nrf.processHeartbeat(addr, message.split(NRF_SEPARATOR))
+        elif action == MQ_SET_THROTTLE:
             nrf.setThrottle(addr, toInt(message))
         elif action == MQ_SET_DIRECTION:
             for i, s in enumerate(MQ_DIRECTIONS):
