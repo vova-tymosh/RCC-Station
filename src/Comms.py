@@ -7,7 +7,6 @@ from paho.mqtt.subscribeoptions import SubscribeOptions
 
 
 
-
 MQ_MESSAGE = re.compile("cab/(.*?)/(.*)")
 MQ_PREFIX = "cab"
 MQ_INTRO = "intro"
@@ -106,7 +105,7 @@ class TransportNrf:
     def processListCab(self, addr):
         p = NRF_SEPARATOR.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
         p = struct.pack(f'<B{len(p)}s', ord(NRF_LIST_CAB), p.encode())
-        self.write(addr, p)        
+        self.write(addr, p)
 
     def processSub(self, addr, subTo):
         addr = int(addr)
@@ -145,10 +144,10 @@ class TransportNrf:
 
     def getValue(self, addr, value):
         key = value.encode()
-        k = len(key)        
+        k = len(key)
         p = struct.pack(f'<B{k}s', ord(NRF_GET_VALUE), key)
         self.write(addr, p)
-    
+
     def listValueAsk(self, addr):
         p = struct.pack('<BB', ord(NRF_LIST_VALUE_ASK), 0)
         self.write(addr, p)
@@ -158,7 +157,7 @@ class TransportNrf:
         s = len(value)
         p = struct.pack(f'<B{s}s', ord(NRF_LIST_VALUE_RES), value)
         self.write(addr, p)
-    
+
     def setValue(self, addr, key, value):
         key = key.encode()
         value = value.encode()
@@ -301,7 +300,7 @@ class TransportMqtt:
     def listValueAsk(self, addr):
         topic = f"{MQ_PREFIX}/{addr}/{MQ_LIST_VALUE_ASK}"
         self.write(topic, "")
-    
+
     def listValueRes(self, addr, value):
         topic = f"{MQ_PREFIX}/{addr}/{MQ_LIST_VALUE_RES}"
         self.write(topic, value)
@@ -321,6 +320,7 @@ class TransportMqtt:
             return
         logging.debug(f"[MQ] <: {msg.topic} {message}")
         addr, action = topic.groups()
+
 
         if action == MQ_INTRO:
             nrf.processIntro(addr, message)
