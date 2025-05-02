@@ -76,70 +76,69 @@ PROTO_MAP = [ \
 
 
 
+class Translator:
+    def __init__(self,):
+        self.addr = 0
 
+    def getKey(self, keyMatch):
+        if keyMatch:
+            d = keyMatch.groupdict()
+            return d.get('key', '')
+        return ''
 
-def getKey(keyMatch):
-    if keyMatch:
-        d = keyMatch.groupdict()
-        return d.get('key', '')
-    return ''
+    def getKeyValue(self, inputRe, inputData):
+        match = inputRe.match(inputData)
+        if match:
+            d = match.groupdict()
+            return d.get('key', ''), d.get('value', '')
+        return '', ''
 
-def getKeyValue(inputRe, inputData):
-    match = inputRe.match(inputData)
-    if match:
-        d = match.groupdict()
-        return d.get('key', ''), d.get('value', '')
-    return '', ''    
+    def buildNrf(self, entry, key, value):
+        output = entry.nrf[1]
+        if callable(output):
+            return bytes(entry.nrf[0], 'utf-8') + bytes(output(key, value))
+        elif output == '{intvalue}':
+            return bytes(entry.nrf[0], 'utf-8') + bytes([int(value)])
+        else:
+            output = output.replace('{key}', key).replace('{value}', value)
+            return bytes(entry.nrf[0], 'utf-8') + bytes(output, 'utf-8')
 
-def toNrf(action, message):
-    for entry in PROTO_MAP:
-        a = entry.mq[2].match(action)
-        if a:
-            key = getKey(a)
-            nrf = buildNrf(entry, key, message)
-            if nrf:
-                return nrf
+    def buildMq(self, entry, value):
+        output = entry.mq[1]
+        if callable(output):
+            key, value = output(value)
+            return entry.mq[0].replace('{key}', key), value
+        elif output == '{intvalue}':
+            value = ord(value)
+            return entry.mq[0], str(value)
+        else:
+            key, value = self.getKeyValue(entry.nrf[2], value.decode())
+            return entry.mq[0].replace('{key}', key), entry.mq[1].replace('{value}', value)
+        return None
 
-def buildNrf(entry, key, value):
-    output = entry.nrf[1]
-    if callable(output):
-        return bytes(entry.nrf[0], 'utf-8') + bytes(output(key, value))
-    elif output == '{intvalue}':
-        return bytes(entry.nrf[0], 'utf-8') + bytes([int(value)])
-    else:
-        output = output.replace('{key}', key).replace('{value}', value)
-        return bytes(entry.nrf[0], 'utf-8') + bytes(output, 'utf-8')
-
-
-def toMq(action, message):
-    if action == NRF_SUB:
-        t.processSub(message)
-    elif action == NRF_LIST_CAB:
-        t.processListCab(message)
-    else:
+    def toNrf(self, addr, action, message):
         for entry in PROTO_MAP:
-            if ord(entry.nrf[0]) == action:
-                nrf = buildMq(entry, message)
+            a = entry.mq[2].match(action)
+            if a:
+                key = self.getKey(a)
+                nrf = self.buildNrf(entry, key, message)
                 if nrf:
                     return nrf
 
-def buildMq(entry, value):
-    output = entry.mq[1]
-    if callable(output):
-        key, value = output(value)
-        return entry.mq[0].replace('{key}', key) + '+' + value
-    elif output == '{intvalue}':
-        value = ord(value)
-        return entry.mq[0] + '+' + str(value)
-    else:
-        key, value = getKeyValue(entry.nrf[2], value.decode())
-        return entry.mq[0].replace('{key}', key) + '+' + entry.mq[1].replace('{value}', value)
-    return None
+    def toMq(self, action, message):
+        if action == NRF_SUB:
+            t.processSub(message)
+        elif action == NRF_LIST_CAB:
+            t.processListCab(message)
+        else:
+            for entry in PROTO_MAP:
+                if ord(entry.nrf[0]) == action:
+                    nrf = self.buildMq(entry, message)
+                    if nrf:
+                        return nrf
 
 
-class Translator:
-    def __init__(self,):
-        self.theMap = ''
+
 
     def processIntro(self, message):
         pass
@@ -189,11 +188,12 @@ def testToNrf(incoming):
     topic, message = incoming.split('+')
     topic = MQ_MESSAGE.match(topic)
     addr, action = topic.groups()
-    return toNrf(action, message)
+    return t.toNrf(addr, action, message)
 
 def testToMq(incoming):
     action, message = (incoming[0], incoming[1:])
-    return 'cab/3/' + toMq(action, message)
+    topic, msg = t.toMq(action, message)
+    return 'cab/3/' + topic + '+' + msg
 
 def testResult(incoming, outgoing, expected):
     line = f'{incoming}'.ljust(28)
