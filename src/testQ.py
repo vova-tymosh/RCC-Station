@@ -1,10 +1,13 @@
-import re
+import re, struct
 
 MQ_MESSAGE = re.compile("cab/(.*?)/(.*)")
 MQ_DIRECTIONS = ["REVERSE", "FORWARD", "STOP", "NEUTRAL"]
 
-
-
+NRF_SEPARATOR = ' '
+NRF_TYPE_LOCO = 'L'
+NRF_TYPE_KEYPAD = 'K'
+NRF_SUB = 'B'
+NRF_LIST_CAB = 'C'
 
 def functionToNrf(k, v):
     return [(int(k) & 0x7F) | (1 << 7 if v == 'ON' else 0)]
@@ -24,14 +27,26 @@ def directionToMq(x):
         return '', MQ_DIRECTIONS[i]
     return '', str(x)
 
-def introToNr(x):
-    t.processIntro(x)
-    return x
+def introToNrf(k, v):
+    t.processIntro(v)
+    return bytes(v, 'utf-8')
 
-def introToMq(k, v):
+def introToMq(x):
+    x = x.decode()
     t.processIntro(x)
-    return '', v.decode()
+    return '', x
 
+def heartbeatToNrf(k, v):
+    fmt = '<' + t.getHeartbeatFmt()
+    unpacked = [int(i) for i in v.split()]
+    return struct.pack(fmt, *unpacked)
+
+def heartbeatToMq(v):
+    fmt = '<' + t.getHeartbeatFmt()
+    size = struct.calcsize(fmt)
+    if len(v) == size:
+        unpacked = struct.unpack(fmt, v)
+        return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
 
 
 class RouteEntry:
@@ -45,10 +60,8 @@ class RouteEntry:
             return re.compile(value)
 
 PROTO_MAP = [ \
-    RouteEntry('A',  introToNr,         'intro',             introToMq         ),
-    # RouteEntry('B',  None,              '',                  subMq             ),
-    # RouteEntry('C',  None,              '',                  listCabsMq        ),
-    # RouteEntry('H',  heartbeatToNr,     'heartbeat/values',  heartbeatToMq     ),
+    RouteEntry('A',  introToNrf,        'intro',             introToMq         ),
+    RouteEntry('H',  heartbeatToNrf,    'heartbeat/values',  heartbeatToMq     ),
     RouteEntry('J',  '{value}',         'keys',              '{value}'         ),
     RouteEntry('T',  '{intvalue}',      'throttle',          '{intvalue}',     ),
     RouteEntry('D',  directionToNrf,    'direction',         directionToMq     ),
@@ -78,7 +91,7 @@ def getKeyValue(inputRe, inputData):
         return d.get('key', ''), d.get('value', '')
     return '', ''    
 
-def fromMq(action, message):
+def toNrf(action, message):
     for entry in PROTO_MAP:
         a = entry.mq[2].match(action)
         if a:
@@ -98,12 +111,17 @@ def buildNrf(entry, key, value):
         return bytes(entry.nrf[0], 'utf-8') + bytes(output, 'utf-8')
 
 
-def fromNrf(action, message):
-    for entry in PROTO_MAP:
-        if ord(entry.nrf[0]) == action:
-            nrf = buildMq(entry, message)
-            if nrf:
-                return nrf
+def toMq(action, message):
+    if action == NRF_SUB:
+        t.processSub(message)
+    elif action == NRF_LIST_CAB:
+        t.processListCab(message)
+    else:
+        for entry in PROTO_MAP:
+            if ord(entry.nrf[0]) == action:
+                nrf = buildMq(entry, message)
+                if nrf:
+                    return nrf
 
 def buildMq(entry, value):
     output = entry.mq[1]
@@ -124,12 +142,24 @@ class Translator:
         self.theMap = ''
 
     def processIntro(self, message):
-        print(">>>>>>>>", message)
+        pass
+        # print(">>>>>>>1>", message.split(' '))
         # fields = message.split()
         # m = { "Type": fields[0], "Addr": fields[1], "Name": fields[2], "Version": fields[3] }
         # if len(fields) > 4:
         #     m["Format"] = fields[4]
         # self.known[addr] = m
+
+    def processSub(self, message):
+        print(">>>>>>>2>", message)
+
+    def processListCab(self, message):
+        print(">>>>>>>3>", message)
+
+    def getHeartbeatFmt(self):
+        # return self.known[addr]["Format"]
+        return 'BB'
+
 
 t = Translator()
 
@@ -139,14 +169,18 @@ t = Translator()
 
 
 testProtocolData = [
-('cab/3/throttle+99',       b'Tc'),
-('cab/3/function/get+2',    b'P\x02'),
-('cab/3/function/3+ON',     b'F\x83'),
-('cab/3/function/3+OFF',    b'F\x03'),
-('cab/3/value/get+zupa',    b'Gzupa'),
-('cab/3/value/zupa+abc',    b'Szupa abc'),
-('cab/3/value/list+',       b'L'),
-('cab/3/direction+FORWARD', b'D\x01')
+('cab/3/throttle+99',           b'Tc'),
+('cab/3/function/get+2',        b'P\x02'),
+('cab/3/function/3+ON',         b'F\x83'),
+('cab/3/function/3+OFF',        b'F\x03'),
+('cab/3/value/get+zupa',        b'Gzupa'),
+('cab/3/value/zupa+abc',        b'Szupa abc'),
+('cab/3/value/list+',           b'L'),
+('cab/3/direction+FORWARD',     b'D\x01'),
+('cab/3/direction+REVERSE',     b'D\x00'),
+('cab/3/direction+NEUTRAL',     b'D\x03'),
+('cab/3/intro+L 3 Rcc 0.9 B',   b'AL 3 Rcc 0.9 B'),
+('cab/3/heartbeat/values+1 2',  b'H\x01\x02'),
 ]
 
 
@@ -155,14 +189,14 @@ def testToNrf(incoming):
     topic, message = incoming.split('+')
     topic = MQ_MESSAGE.match(topic)
     addr, action = topic.groups()
-    return fromMq(action, message)
+    return toNrf(action, message)
 
 def testToMq(incoming):
     action, message = (incoming[0], incoming[1:])
-    return 'cab/3/' + fromNrf(action, message)
+    return 'cab/3/' + toMq(action, message)
 
 def testResult(incoming, outgoing, expected):
-    line = f'{incoming}'.ljust(25)
+    line = f'{incoming}'.ljust(28)
     line += f' ->   {outgoing}'.ljust(38)
     print(line, end='')
     if outgoing == expected:
@@ -173,5 +207,7 @@ def testResult(incoming, outgoing, expected):
 for mq, nrf in testProtocolData:
     nrfAct = testToNrf(mq)
     testResult(mq, nrfAct, nrf)
+
+for mq, nrf in testProtocolData:
     mqAct = testToMq(nrf)
     testResult(nrf, mqAct, mq)
