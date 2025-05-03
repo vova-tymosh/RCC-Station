@@ -48,6 +48,7 @@ def heartbeatToMq(v):
     if len(v) == size:
         unpacked = struct.unpack(fmt, v)
         return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
+    return '', ''
 
 
 class RouteEntry:
@@ -131,7 +132,7 @@ class Translator:
 
     def toMq(self, action, message):
         for entry in PROTO_MAP:
-            if ord(entry.nrf[0]) == action:
+            if entry.nrf[0] == action:
                 nrf = self.buildMq(entry, message)
                 if nrf:
                     return nrf
@@ -144,9 +145,10 @@ class Broker:
         self.subscription = {}
 
     def askToIntro(self, addr):
-        nrf.write(addr, struct.pack('<BB', ord(NRF_INTRO), 0))
+        nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
 
     def processIntro(self, addr, message):
+        message = str(message, 'utf-8')
         fields = message.split()
         m = { "Type": fields[0], "Addr": fields[1], "Name": fields[2], "Version": fields[3] }
         if len(fields) > 4:
@@ -154,49 +156,53 @@ class Broker:
         self.known[addr] = m
 
     def processSub(self, addr, subTo):
-        addr = int(addr)
         subTo = int(subTo)
         self.subscription[addr] = subTo
         self.subscription[subTo] = addr
 
-    def processListCab(self, message):
-        p = NRF_SEPARATOR.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
-        p = struct.pack(f'<B{len(p)}s', ord(NRF_LIST_CAB), p.encode())
+    def processListCab(self, addr):
+        p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
+        p = bytes(p, 'utf-8')
         nrf.write(addr, p)
 
     def getHeartbeatFmt(self):
-        return self.known[self.addr]["Format"]
+        return self.known[self.addr]["Format"][1:]
 
     def getForwardNrf(self, addr):
-        addr = int(addr)
-        return self.subscription.get(addr, 0)
+        return self.subscription.get(int(addr), 0)
 
     def getForwardMq(self, addr):
         k = self.known.get(addr, 0)
-        sub = self.getForwardNrf(addr)
-        if k:
-            return sub if k["Type"] == NRF_TYPE_KEYPAD else addr
+        if k["Type"] == NRF_TYPE_LOCO:
+            return addr
+        else:
+            sub = self.subscription.get(int(addr), 0)
+            return addr if sub == 0 else sub
 
     def receiveNrf(self, addr, action, message):
+        addr = int(addr)
         if addr not in self.known and action != NRF_INTRO:
             self.askToIntro(addr)
             return
         if action == NRF_SUB:
-            self.processSub(addr, message[1])
+            self.processSub(addr, message[0])
             return
         if action == NRF_LIST_CAB:
-            self.processListCab(message)
+            self.processListCab(addr)
             return
+
 
         if action == NRF_INTRO:
             self.processIntro(addr, message)
         self.addr = addr
         fwdPacket = translator.toMq(action, message)
         fwdMqAddr = self.getForwardMq(addr)
+
         mq.write(fwdMqAddr, fwdPacket)
         fwdNrfAddr = self.getForwardNrf(addr)
+
         if fwdNrfAddr:
-            nrf.write(fwdNrfAddr, message)
+            nrf.write(fwdNrfAddr, bytes(action, 'utf-8') + message)
 
     def receiveMq(self, addr, action, message):
         self.addr = addr
@@ -215,15 +221,15 @@ class TransportNrf:
     def start(self):
         self.wireless.start()
 
-    def write(self, addr, message):
+    def write(self, addr, packet):
         addr = int(addr)
-        logging.debug(f"[NF] >: {addr}/{message}")
-        self.wireless.write(addr, message)
+        logging.debug(f"[NF] >: {addr}/{packet}")
+        self.wireless.write(addr, packet)
 
     def onReceive(self, addr, packet):
-        if len(message) < 2:
+        if len(packet) < 2:
             return
-        logging.debug(f"[NF] <: {addr}/{message}")
+        logging.debug(f"[NF] <: {addr}/{packet}")
         broker.receiveNrf(addr, chr(packet[0]), packet[1:])
 
 
@@ -239,7 +245,9 @@ class TransportMqtt:
         self.mqttClient.subscribe(f'{MQ_PREFIX}/#', options = options)
         self.mqttClient.loop_forever()
 
-    def write(self, topic, message, retain = False):
+    def write(self, addr, packet, retain = False):
+        topic = f"{MQ_PREFIX}/{addr}/{packet[0]}"
+        message = packet[1]
         logging.info(f"[MQ] >: {topic} {message}")
         self.cache = f"{topic} {message}"
         self.mqttClient.publish(topic, message, retain)
@@ -248,12 +256,12 @@ class TransportMqtt:
         topic = MQ_MESSAGE.match(msg.topic)
         if (topic is None):
             return
-        message = str(msg.payload, 'UTF-8')
+        message = str(msg.payload, 'utf-8')
         cache = f"{msg.topic} {message}"
         if cache == self.cache:
             return
-        logging.debug(f"[MQ] <: {msg.topic} {message}")
         addr, action = topic.groups()
+        logging.debug(f"[MQ] <: {msg.topic} {message}")
         broker.receiveMq(addr, action, message)
 
 
