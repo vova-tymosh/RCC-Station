@@ -9,9 +9,10 @@ MQTT_BROKER = '127.0.0.1'
 MQTT_NODE_NAME = 'RCC_Station'
 NRF_PINS = (25, 8)
 
-MQ_MESSAGE = re.compile("cab/(.*?)/(.*)")
-MQ_PREFIX = "cab"
-MQ_DIRECTIONS = ["REVERSE", "FORWARD", "STOP", "NEUTRAL"]
+
+MQ_MESSAGE = re.compile('cab/(.*?)/(.*)')
+MQ_PREFIX = 'cab'
+MQ_DIRECTIONS = ['REVERSE', 'FORWARD', 'STOP', 'NEUTRAL']
 NRF_SEPARATOR = ' '
 NRF_TYPE_LOCO = 'L'
 NRF_TYPE_KEYPAD = 'K'
@@ -19,123 +20,107 @@ NRF_INTRO = 'A'
 NRF_SUB = 'B'
 NRF_LIST_CAB = 'C'
 
-def functionToNrf(k, v):
-    return [(int(k) & 0x7F) | (1 << 7 if v == 'ON' else 0)]
 
-def functionToMq(x):
-    return str(ord(x) & 0x7F), ('ON' if ord(x) & 0x80 else 'OFF')
+def buildTrasnlationMap():
+    return [
+        RouteEntry('A',  translateIntro,        'intro',            ),
+        RouteEntry('H',  translateHeartbeat,    'heartbeat/values', ),
+        RouteEntry('T',  translateInt,          'throttle',         ),
+        RouteEntry('D',  translateDirection,    'direction',        ),
+        RouteEntry('P',  translateInt,          'function/get',     ),
+        RouteEntry('F',  translateFunctionSet,  'function/',        ),
+        RouteEntry('L',  translateStr,          'value/list',       ),
+        RouteEntry('J',  translateStr,          'keys',             ),
+        RouteEntry('G',  translateStr,          'value/get',        ),
+        RouteEntry('S',  translateValueSet,     'value/',           ),
+    ]
 
-def directionToNrf(k, v):
-    for i, s in enumerate(MQ_DIRECTIONS):
-        if v == s or v == str(i):
-            return [i]
-    return [1]
+def translateDirection(toNrf, k, v):
+    if toNrf:
+        for i, s in enumerate(MQ_DIRECTIONS):
+            if v == s or v == str(i):
+                return [i]
+    else:
+        i = int(v[0])
+        if i < len(MQ_DIRECTIONS):
+            return '', MQ_DIRECTIONS[i]
 
-def directionToMq(x):
-    i = int(x[0])
-    if i < len(MQ_DIRECTIONS):
-        return '', MQ_DIRECTIONS[i]
-    return '', str(x)
+def translateFunctionSet(toNrf, k, v):
+    if toNrf:
+        return [(int(k) & 0x7F) | (1 << 7 if v == 'ON' else 0)]
+    else:
+        return str(ord(v) & 0x7F), ('ON' if ord(v) & 0x80 else 'OFF')
 
-def heartbeatToNrf(k, v):
-    fmt = '<' + broker.getHeartbeatFmt()
-    unpacked = [int(i) for i in v.split()]
-    return struct.pack(fmt, *unpacked)
+def translateValueSet(toNrf, k, v):
+    if toNrf:
+        return bytes(f'{k}{NRF_SEPARATOR}{v}', 'utf-8')
+    else:
+        return v.decode().split(NRF_SEPARATOR)
 
-def heartbeatToMq(v):
-    fmt = '<' + broker.getHeartbeatFmt()
-    size = struct.calcsize(fmt)
-    if len(v) == size:
-        unpacked = struct.unpack(fmt, v)
-        return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
-    return '', ''
+def translateHeartbeat(toNrf, k, v):
+    if toNrf:
+        fmt = '<' + broker.getHeartbeatFmt()
+        unpacked = [int(i) for i in v.split()]
+        return struct.pack(fmt, *unpacked)
+    else:
+        fmt = '<' + broker.getHeartbeatFmt()
+        size = struct.calcsize(fmt)
+        if len(v) == size:
+            unpacked = struct.unpack(fmt, v)
+            return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
+
+def translateInt(toNrf, k, v):
+    if toNrf:
+        try:
+            return [abs(int(v))]
+        except:
+            return None
+    else:
+        return '', str(ord(v))
+
+def translateStr(toNrf, k, v):
+    if toNrf:
+        return bytes(v, 'utf-8')
+    else:
+        return '', v.decode()
+
+def translateIntro(toNrf, k, v):
+    if toNrf:
+        broker.processIntro(v)
+        return bytes(v, 'utf-8')
+    else:
+        v = v.decode()
+        broker.processIntro(v)
+        return '', v
+
 
 
 class RouteEntry:
-    def __init__(self, nrTopic, nrMessage, mqTopic, mqMessage):
-        self.nrf = [nrTopic, nrMessage, self.toRe(nrMessage)]
-        self.mq = [mqTopic, mqMessage, self.toRe(mqTopic)]
-
-    def toRe(self, value):
-        if type(value) == str:
-            value = value.replace('{key}', '(?P<key>.*)').replace('{value}', '(?P<value>.*)')
-            return re.compile(value)
-
-PROTO_MAP = [ \
-    RouteEntry('A',  '{value}',         'intro',             '{value}'         ),
-    RouteEntry('H',  heartbeatToNrf,    'heartbeat/values',  heartbeatToMq     ),
-    RouteEntry('J',  '{value}',         'keys',              '{value}'         ),
-    RouteEntry('T',  '{intvalue}',      'throttle',          '{intvalue}',     ),
-    RouteEntry('D',  directionToNrf,    'direction',         directionToMq     ),
-    RouteEntry('P',  '{intvalue}',      'function/get',      '{intvalue}'      ),
-    RouteEntry('F',  functionToNrf,     'function/{key}',    functionToMq,     ),
-    RouteEntry('L',  lambda x,y: 0,     'value/list',        lambda x: ('','') ),
-    RouteEntry('J',  '{value}',         'keys',              '{value}'         ),
-    RouteEntry('G',  '{value}',         'value/get',         '{value}'         ),
-    RouteEntry('S',  '{key} {value}',   'value/{key}',       '{value}'         ),
-]
-
-
-
+    def __init__(self, nrfTopic, traslateFunc, mqTopic):
+        self.nrfTopic = nrfTopic
+        self.mqTopic = mqTopic
+        self.traslateFunc = traslateFunc
 
 class Translator:
-    def toInt(self, x):
-        try:
-            return abs(int(x))
-        except:
-            return 0
-
-    def getKey(self, keyMatch):
-        if keyMatch:
-            d = keyMatch.groupdict()
-            return d.get('key', '')
-        return ''
-
-    def getKeyValue(self, inputRe, inputData):
-        match = inputRe.match(inputData)
-        if match:
-            d = match.groupdict()
-            return d.get('key', ''), d.get('value', '')
-        return '', ''
-
-    def buildNrf(self, entry, key, value):
-        output = entry.nrf[1]
-        if callable(output):
-            return bytes(entry.nrf[0], 'utf-8') + bytes(output(key, value))
-        elif output == '{intvalue}':
-            return bytes(entry.nrf[0], 'utf-8') + bytes([self.toInt(value)])
-        else:
-            output = output.replace('{key}', key).replace('{value}', value)
-            return bytes(entry.nrf[0], 'utf-8') + bytes(output, 'utf-8')
-
-    def buildMq(self, entry, value):
-        output = entry.mq[1]
-        if callable(output):
-            key, value = output(value)
-            return entry.mq[0].replace('{key}', key), value
-        elif output == '{intvalue}':
-            value = ord(value)
-            return entry.mq[0], str(value)
-        else:
-            key, value = self.getKeyValue(entry.nrf[2], value.decode())
-            return entry.mq[0].replace('{key}', key), entry.mq[1].replace('{value}', value)
-        return None
+    def __init__(self):
+        self.proto_map = buildTrasnlationMap()
 
     def toNrf(self, action, message):
-        for entry in PROTO_MAP:
-            a = entry.mq[2].match(action)
-            if a:
-                key = self.getKey(a)
-                nrf = self.buildNrf(entry, key, message)
-                if nrf:
-                    return nrf
+        for entry in self.proto_map:
+            if action.startswith(entry.mqTopic):
+                k = action.removeprefix(entry.mqTopic)
+                t = entry.traslateFunc(True, k, message)
+                if t != None:
+                    t = bytes(entry.nrfTopic, 'utf-8') + bytes(t)
+                return t
 
     def toMq(self, action, message):
-        for entry in PROTO_MAP:
-            if entry.nrf[0] == action:
-                nrf = self.buildMq(entry, message)
-                if nrf:
-                    return nrf
+        for entry in self.proto_map:
+            if action == entry.nrfTopic:
+                t = entry.traslateFunc(False, '', message)
+                if t:
+                    topic, messageOut = t
+                    return entry.mqTopic + topic, messageOut
 
 
 class Broker:
@@ -147,33 +132,34 @@ class Broker:
     def askToIntro(self, addr):
         nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
 
-    def processIntro(self, addr, message):
-        message = str(message, 'utf-8')
+    def processIntro(self, message):
         fields = message.split()
-        m = { "Type": fields[0], "Addr": fields[1], "Name": fields[2], "Version": fields[3] }
+        m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3] }
         if len(fields) > 4:
-            m["Format"] = fields[4]
-        self.known[addr] = m
+            m['Format'] = fields[4]
+        self.known[self.addr] = m
+        logging.info(f'New entry: {self.known[self.addr]}')
 
     def processSub(self, addr, subTo):
         subTo = int(subTo)
         self.subscription[addr] = subTo
         self.subscription[subTo] = addr
+        logging.info(f'Subscribed from: {addr} to {subTo}')
 
     def processListCab(self, addr):
-        p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f'{fields["Type"]} {fields["Addr"]} {fields["Name"]}' for addr, fields in self.known.items()] )
+        p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f"{fields['Type']} {fields['Addr']} {fields['Name']}" for addr, fields in self.known.items()] )
         p = bytes(p, 'utf-8')
         nrf.write(addr, p)
 
     def getHeartbeatFmt(self):
-        return self.known[self.addr]["Format"][1:]
+        return self.known[self.addr]['Format'][1:]
 
     def getForwardNrf(self, addr):
         return self.subscription.get(int(addr), 0)
 
     def getForwardMq(self, addr):
         k = self.known.get(addr, 0)
-        if k["Type"] == NRF_TYPE_LOCO:
+        if k['Type'] == NRF_TYPE_LOCO:
             return addr
         else:
             sub = self.subscription.get(int(addr), 0)
@@ -191,24 +177,21 @@ class Broker:
             self.processListCab(addr)
             return
 
-
-        if action == NRF_INTRO:
-            self.processIntro(addr, message)
         self.addr = addr
         fwdPacket = translator.toMq(action, message)
+        if fwdPacket is None:
+            return
         fwdMqAddr = self.getForwardMq(addr)
-
         mq.write(fwdMqAddr, fwdPacket)
         fwdNrfAddr = self.getForwardNrf(addr)
-
         if fwdNrfAddr:
             nrf.write(fwdNrfAddr, bytes(action, 'utf-8') + message)
 
     def receiveMq(self, addr, action, message):
-        self.addr = addr
+        self.addr = int(addr)
         fwdPacket = translator.toNrf(action, message)
         fwdNrfAddr = self.getForwardNrf(addr)
-        if fwdNrfAddr:
+        if fwdNrfAddr and fwdPacket is not None:
             nrf.write(fwdNrfAddr, fwdPacket)
 
 
@@ -223,13 +206,14 @@ class TransportNrf:
 
     def write(self, addr, packet):
         addr = int(addr)
-        logging.debug(f"[NF] >: {addr}/{packet}")
+        logging.debug(f'[NF] >: {addr}/{packet}')
         self.wireless.write(addr, packet)
 
     def onReceive(self, addr, packet):
-        if len(packet) < 2:
+        packet = bytes(packet)
+        if len(packet) < 1:
             return
-        logging.debug(f"[NF] <: {addr}/{packet}")
+        logging.debug(f'[NF] <: {addr}/{packet}')
         broker.receiveNrf(addr, chr(packet[0]), packet[1:])
 
 
@@ -246,35 +230,37 @@ class TransportMqtt:
         self.mqttClient.loop_forever()
 
     def write(self, addr, packet, retain = False):
-        topic = f"{MQ_PREFIX}/{addr}/{packet[0]}"
+        topic = f'{MQ_PREFIX}/{addr}/{packet[0]}'
         message = packet[1]
-        logging.info(f"[MQ] >: {topic} {message}")
-        self.cache = f"{topic} {message}"
+        logging.debug(f'[MQ] >: {topic} {message}')
+        self.cache = topic + message
         self.mqttClient.publish(topic, message, retain)
 
     def onReceive(self, client, userdata, msg):
-        topic = MQ_MESSAGE.match(msg.topic)
-        if (topic is None):
-            return
+        topic = msg.topic
         message = str(msg.payload, 'utf-8')
-        cache = f"{msg.topic} {message}"
+        logging.debug(f'[MQ] <: {topic} {message}')
+        topicRe = MQ_MESSAGE.match(topic)
+        if (topicRe is None):
+            return
+        cache = topic + message
         if cache == self.cache:
             return
-        addr, action = topic.groups()
-        logging.debug(f"[MQ] <: {msg.topic} {message}")
+        addr, action = topicRe.groups()
         broker.receiveMq(addr, action, message)
 
 
-logging.basicConfig(level=logging.DEBUG,
+logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s %(message)s',
                     filename='comms.log',
                     filemode='a')
 logging.error('Start')
 
-translator = Translator()
-broker = Broker()
-nrf = TransportNrf()
-mq = TransportMqtt()
+if __name__ == '__main__':
+    translator = Translator()
+    broker = Broker()
+    nrf = TransportNrf()
+    mq = TransportMqtt()
 
-nrf.start()
-mq.start()
+    nrf.start()
+    mq.start()
