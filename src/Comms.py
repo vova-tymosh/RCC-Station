@@ -19,7 +19,7 @@ NRF_TYPE_KEYPAD = 'K'
 NRF_INTRO = 'A'
 NRF_SUB = 'B'
 NRF_LIST_CAB = 'C'
-
+NRF_HEARTBEAT = 'H'
 
 def buildTrasnlationMap():
     return [
@@ -59,11 +59,15 @@ def translateValueSet(toNrf, k, v):
 
 def translateHeartbeat(toNrf, k, v):
     if toNrf:
-        fmt = '<' + broker.getHeartbeatFmt()
+        fmt = broker.getHeartbeatFmt()
+        if fmt is None:
+            return bytes([ord(NRF_HEARTBEAT), 0])
         unpacked = [int(i) for i in v.split()]
         return struct.pack(fmt, *unpacked)
     else:
-        fmt = '<' + broker.getHeartbeatFmt()
+        fmt = broker.getHeartbeatFmt()
+        if fmt is None:
+            return '', ''
         size = struct.calcsize(fmt)
         if len(v) == size:
             unpacked = struct.unpack(fmt, v)
@@ -89,9 +93,7 @@ def translateIntro(toNrf, k, v):
         broker.processIntro(v)
         return bytes(v, 'utf-8')
     else:
-        v = v.decode()
-        broker.processIntro(v)
-        return '', v
+        broker.processIntro(v.decode())
 
 
 
@@ -118,7 +120,7 @@ class Translator:
         for entry in self.proto_map:
             if action == entry.nrfTopic:
                 t = entry.traslateFunc(False, '', message)
-                if t:
+                if t != None:
                     topic, messageOut = t
                     return entry.mqTopic + topic, messageOut
 
@@ -136,8 +138,10 @@ class Broker:
         fields = message.split()
         m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3] }
         if len(fields) > 4:
-            m['Format'] = fields[4]
-        self.known[self.addr] = m
+            m['Format'] = '<' + fields[4][1:]
+        if self.addr not in self.known:
+            self.known[self.addr] = {}
+        self.known[self.addr].update(m)
         logging.info(f'New entry: {self.known[self.addr]}')
 
     def processSub(self, addr, subTo):
@@ -152,7 +156,8 @@ class Broker:
         nrf.write(addr, p)
 
     def getHeartbeatFmt(self):
-        return self.known[self.addr]['Format'][1:]
+        if 'Format' in self.known[self.addr]:
+            return self.known[self.addr]['Format']
 
     def getForwardNrf(self, addr):
         return self.subscription.get(int(addr), 0)
@@ -239,18 +244,18 @@ class TransportMqtt:
     def onReceive(self, client, userdata, msg):
         topic = msg.topic
         message = str(msg.payload, 'utf-8')
-        logging.debug(f'[MQ] <: {topic} {message}')
         topicRe = MQ_MESSAGE.match(topic)
-        if (topicRe is None):
+        if topicRe is None:
             return
         cache = topic + message
         if cache == self.cache:
             return
+        logging.debug(f'[MQ] <: {topic} {message}')
         addr, action = topicRe.groups()
         broker.receiveMq(addr, action, message)
 
 
-logging.basicConfig(level=logging.INFO,
+logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(message)s',
                     filename='comms.log',
                     filemode='a')
