@@ -5,11 +5,16 @@ import Wireless
 import paho.mqtt.client as mqtt
 from paho.mqtt.subscribeoptions import SubscribeOptions
 
+#
+# User config, depends on your HW and Network config
+#
 MQTT_BROKER = '127.0.0.1'
-MQTT_NODE_NAME = 'RCC_Station'
 NRF_PINS = (25, 8)
+MQTT_NODE_NAME = 'RCC_Station'
 
-
+#
+# NRF & MQTT protocol definition
+#
 MQ_MESSAGE = re.compile('cab/(.*?)/(.*)')
 MQ_PREFIX = 'cab'
 MQ_DIRECTIONS = ['REVERSE', 'FORWARD', 'STOP', 'NEUTRAL']
@@ -21,6 +26,14 @@ NRF_SUB = 'B'
 NRF_LIST_CAB = 'C'
 NRF_HEARTBEAT = 'H'
 
+#
+# NRF to MQTT and back translation table.
+#    First column - Nrf topic (single char)
+#    Second column - conversion function with signature (bool toNrf, key, value)
+#                    key - present for set commands like setFunction or setValue (name/key of the thing to set). Otherwise empty str
+#                    value - a main argument of the command
+#    Third column - the MQTT topic suffix (after cab/{addr}/).
+#
 def buildTrasnlationMap():
     return [
         RouteEntry('A',  translateIntro,        'intro',            ),
@@ -35,6 +48,9 @@ def buildTrasnlationMap():
         RouteEntry('S',  translateValueSet,     'value/',           ),
     ]
 
+#
+# Translation functions, for Nrf returs list of ints, for mqtt a pair of strings (topic suffix and message).
+#
 def translateDirection(toNrf, k, v):
     if toNrf:
         for i, s in enumerate(MQ_DIRECTIONS):
@@ -58,20 +74,18 @@ def translateValueSet(toNrf, k, v):
         return v.decode().split(NRF_SEPARATOR)
 
 def translateHeartbeat(toNrf, k, v):
+    fmt = broker.getHeartbeatFmt()
     if toNrf:
-        fmt = broker.getHeartbeatFmt()
-        if fmt is None:
-            return bytes([ord(NRF_HEARTBEAT), 0])
-        unpacked = [int(i) for i in v.split()]
+        v = v.split()
+        if fmt is None or len(v) == 0:
+            return bytes([0])
+        unpacked = [int(i) for i in v]
         return struct.pack(fmt, *unpacked)
     else:
-        fmt = broker.getHeartbeatFmt()
-        if fmt is None:
+        if fmt is None or struct.calcsize(fmt) != len(v):
             return '', ''
-        size = struct.calcsize(fmt)
-        if len(v) == size:
-            unpacked = struct.unpack(fmt, v)
-            return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
+        unpacked = struct.unpack(fmt, v)
+        return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
 
 def translateInt(toNrf, k, v):
     if toNrf:
@@ -91,18 +105,23 @@ def translateStr(toNrf, k, v):
 def translateIntro(toNrf, k, v):
     if toNrf:
         broker.processIntro(v)
-        return bytes(v, 'utf-8')
     else:
         broker.processIntro(v.decode())
+        return '', v.decode()
 
 
-
+#
+# Object to store/represent a translation entry (see the translation table abobe)
+#
 class RouteEntry:
     def __init__(self, nrfTopic, traslateFunc, mqTopic):
         self.nrfTopic = nrfTopic
         self.mqTopic = mqTopic
         self.traslateFunc = traslateFunc
 
+#
+# Tranlator mechanism, takes one protocol and translate into another
+#
 class Translator:
     def __init__(self):
         self.proto_map = buildTrasnlationMap()
@@ -124,12 +143,19 @@ class Translator:
                     topic, messageOut = t
                     return entry.mqTopic + topic, messageOut
 
-
+#
+# Broker uses tranlator and adds routing capability (which address on Nrf & Mqtt side to route the packet).
+#  Also manages intro's and subscriptions of keypads to locos (as part of routing).
+#  Expects Nrf data arrive as char for action/topic and bytes for message
+#  Expects Mqtt adat to arrive string for both action/topic and message
+#
 class Broker:
-
     def __init__(self):
         self.known = {}
         self.subscription = {}
+
+    def updateFmt(self, fmt):
+        return '<' + fmt[1:]
 
     def askToIntro(self, addr):
         nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
@@ -138,7 +164,7 @@ class Broker:
         fields = message.split()
         m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3] }
         if len(fields) > 4:
-            m['Format'] = '<' + fields[4][1:]
+            m['Format'] = self.updateFmt(fields[4])
         if self.addr not in self.known:
             self.known[self.addr] = {}
         self.known[self.addr].update(m)
@@ -199,8 +225,9 @@ class Broker:
         if fwdNrfAddr and fwdPacket is not None:
             nrf.write(fwdNrfAddr, fwdPacket)
 
-
-
+#
+# Phisical connection to Nrf
+#
 class TransportNrf:
     def __init__(self):
         self.wireless = Wireless.Wireless(*NRF_PINS)
@@ -221,7 +248,9 @@ class TransportNrf:
         logging.debug(f'[NF] <: {addr}/{packet}')
         broker.receiveNrf(addr, chr(packet[0]), packet[1:])
 
-
+#
+# Phisical connection to Mqtt
+#
 class TransportMqtt:
     def __init__(self):
         self.mqttClient = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, MQTT_NODE_NAME)
@@ -255,15 +284,16 @@ class TransportMqtt:
         broker.receiveMq(addr, action, message)
 
 
-logging.basicConfig(level=logging.DEBUG,
-                    format='%(asctime)s %(message)s',
-                    filename='comms.log',
-                    filemode='a')
-logging.error('Start')
+translator = Translator()
+broker = Broker()
 
 if __name__ == '__main__':
-    translator = Translator()
-    broker = Broker()
+    logging.basicConfig(level=logging.DEBUG,
+                        format='%(asctime)s %(message)s',
+                        filename='comms.log',
+                        filemode='a')
+    logging.error('Start')
+
     nrf = TransportNrf()
     mq = TransportMqtt()
 
