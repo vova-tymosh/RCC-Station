@@ -221,9 +221,8 @@ class Broker:
     def receiveMq(self, addr, action, message):
         self.addr = int(addr)
         fwdPacket = translator.toNrf(action, message)
-        fwdNrfAddr = self.getForwardNrf(addr)
-        if fwdNrfAddr and fwdPacket is not None:
-            nrf.write(fwdNrfAddr, fwdPacket)
+        if fwdPacket is not None:
+            nrf.write(addr, fwdPacket)
 
 #
 # Phisical connection to Nrf
