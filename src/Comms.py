@@ -107,7 +107,7 @@ def translateIntro(toNrf, k, v):
         broker.processIntro(v)
     else:
         broker.processIntro(v.decode())
-        return '', v.decode()
+
 
 
 #
