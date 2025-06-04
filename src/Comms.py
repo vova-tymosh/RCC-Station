@@ -18,7 +18,7 @@ MQTT_NODE_NAME = 'RCC_Station'
 MQ_MESSAGE = re.compile('cab/(.*?)/(.*)')
 MQ_PREFIX = 'cab'
 MQ_DIRECTIONS = ['REVERSE', 'FORWARD', 'STOP', 'NEUTRAL']
-NRF_SEPARATOR = ' '
+NRF_SEPARATOR = ','
 NRF_TYPE_LOCO = 'L'
 NRF_TYPE_KEYPAD = 'K'
 NRF_INTRO = 'A'
@@ -76,7 +76,7 @@ def translateValueSet(toNrf, k, v):
 def translateHeartbeat(toNrf, k, v):
     fmt = broker.getHeartbeatFmt()
     if toNrf:
-        v = v.split()
+        v = v.split(NRF_SEPARATOR)
         if fmt is None or len(v) == 0:
             return bytes([0])
         unpacked = [int(i) for i in v]
@@ -161,7 +161,7 @@ class Broker:
         nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
 
     def processIntro(self, message):
-        fields = message.split()
+        fields = message.split(NRF_SEPARATOR)
         m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3] }
         if len(fields) > 4:
             m['Format'] = self.updateFmt(fields[4])
@@ -177,7 +177,7 @@ class Broker:
         logging.info(f'Subscribed from: {addr} to {subTo}')
 
     def processListCab(self, addr):
-        p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f"{fields['Type']} {fields['Addr']} {fields['Name']}" for addr, fields in self.known.items()] )
+        p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f"{fields['Type']}{NRF_SEPARATOR}{fields['Addr']}{NRF_SEPARATOR}{fields['Name']}" for addr, fields in self.known.items()] )
         p = bytes(p, 'utf-8')
         nrf.write(addr, p)
 
