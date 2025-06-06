@@ -37,6 +37,7 @@ NRF_HEARTBEAT = 'H'
 def buildTrasnlationMap():
     return [
         RouteEntry('A',  translateIntro,        'intro',            ),
+        RouteEntry('K',  translateStr,          'heartbeat/keys',   ),
         RouteEntry('H',  translateHeartbeat,    'heartbeat/values', ),
         RouteEntry('T',  translateInt,          'throttle',         ),
         RouteEntry('D',  translateDirection,    'direction',        ),
@@ -51,6 +52,27 @@ def buildTrasnlationMap():
 #
 # Translation functions, for Nrf returs list of ints, for mqtt a pair of strings (topic suffix and message).
 #
+def translateIntro(toNrf, k, v):
+    if toNrf:
+        broker.processIntro(v)
+        return bytes(v, 'utf-8')
+    else:
+        broker.processIntro(v.decode())
+
+def translateHeartbeat(toNrf, k, v):
+    fmt = broker.getHeartbeatFmt()
+    if toNrf:
+        v = v.split(NRF_SEPARATOR)
+        if fmt is None or len(v) == 0:
+            return bytes([0])
+        unpacked = [int(i) for i in v]
+        return struct.pack(fmt, *unpacked)
+    else:
+        if fmt is None or struct.calcsize(fmt) != len(v):
+            return '', ''
+        unpacked = struct.unpack(fmt, v)
+        return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
+
 def translateDirection(toNrf, k, v):
     if toNrf:
         for i, s in enumerate(MQ_DIRECTIONS):
@@ -73,20 +95,6 @@ def translateValueSet(toNrf, k, v):
     else:
         return v.decode().split(NRF_SEPARATOR)
 
-def translateHeartbeat(toNrf, k, v):
-    fmt = broker.getHeartbeatFmt()
-    if toNrf:
-        v = v.split(NRF_SEPARATOR)
-        if fmt is None or len(v) == 0:
-            return bytes([0])
-        unpacked = [int(i) for i in v]
-        return struct.pack(fmt, *unpacked)
-    else:
-        if fmt is None or struct.calcsize(fmt) != len(v):
-            return '', ''
-        unpacked = struct.unpack(fmt, v)
-        return '', NRF_SEPARATOR.join( [f'{i}' for i in unpacked] )
-
 def translateInt(toNrf, k, v):
     if toNrf:
         try:
@@ -101,13 +109,6 @@ def translateStr(toNrf, k, v):
         return bytes(v, 'utf-8')
     else:
         return '', v.decode()
-
-def translateIntro(toNrf, k, v):
-    if toNrf:
-        broker.processIntro(v)
-    else:
-        broker.processIntro(v.decode())
-
 
 
 #
@@ -252,9 +253,9 @@ class TransportNrf:
 #
 class TransportMqtt:
     def __init__(self):
-        self.mqttClient = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, MQTT_NODE_NAME)
+        self.mqttClient = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTProtocolVersion.MQTTv5,
+            client_id = MQTT_NODE_NAME)
         self.mqttClient.on_message = self.onReceive
-        self.cache = ''
 
     def start(self):
         self.mqttClient.connect(MQTT_BROKER)
@@ -266,7 +267,6 @@ class TransportMqtt:
         topic = f'{MQ_PREFIX}/{addr}/{packet[0]}'
         message = packet[1]
         logging.debug(f'[MQ] >: {topic} {message}')
-        self.cache = topic + message
         self.mqttClient.publish(topic, message, retain)
 
     def onReceive(self, client, userdata, msg):
@@ -274,9 +274,6 @@ class TransportMqtt:
         message = str(msg.payload, 'utf-8')
         topicRe = MQ_MESSAGE.match(topic)
         if topicRe is None:
-            return
-        cache = topic + message
-        if cache == self.cache:
             return
         logging.debug(f'[MQ] <: {topic} {message}')
         addr, action = topicRe.groups()
