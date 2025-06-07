@@ -25,6 +25,8 @@ NRF_INTRO = 'A'
 NRF_SUB = 'B'
 NRF_LIST_CAB = 'C'
 NRF_HEARTBEAT = 'H'
+MQ_INTRO = 'intro'
+MQ_INTRO_REQ = 'introreq'
 
 #
 # NRF to MQTT and back translation table.
@@ -55,7 +57,6 @@ def buildTrasnlationMap():
 def translateIntro(toNrf, k, v):
     if toNrf:
         broker.processIntro(v)
-        return bytes(v, 'utf-8')
     else:
         broker.processIntro(v.decode())
 
@@ -158,9 +159,6 @@ class Broker:
     def updateFmt(self, fmt):
         return '<' + fmt[1:]
 
-    def askToIntro(self, addr):
-        nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
-
     def processIntro(self, message):
         fields = message.split(NRF_SEPARATOR)
         m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3] }
@@ -200,7 +198,7 @@ class Broker:
     def receiveNrf(self, addr, action, message):
         addr = int(addr)
         if addr not in self.known and action != NRF_INTRO:
-            self.askToIntro(addr)
+            nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
             return
         if action == NRF_SUB:
             self.processSub(addr, message[0])
@@ -221,6 +219,10 @@ class Broker:
 
     def receiveMq(self, addr, action, message):
         self.addr = int(addr)
+        if addr not in self.known and action != MQ_INTRO:
+            mq.write(addr, (MQ_INTRO_REQ, ''))
+            return
+        self.addr = addr
         fwdPacket = translator.toNrf(action, message)
         if fwdPacket is not None:
             nrf.write(addr, fwdPacket)
