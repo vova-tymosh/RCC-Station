@@ -218,7 +218,7 @@ class Broker:
             nrf.write(fwdNrfAddr, bytes(action, 'utf-8') + message)
 
     def receiveMq(self, addr, action, message):
-        self.addr = int(addr)
+        addr = int(addr)
         if addr not in self.known and action != MQ_INTRO:
             mq.write(addr, (MQ_INTRO_REQ, ''))
             return
