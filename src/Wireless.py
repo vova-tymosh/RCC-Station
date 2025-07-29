@@ -9,8 +9,8 @@
 import queue
 import threading
 import logging
-from RF24 import RF24, RF24_PA_LOW, RF24_PA_HIGH, RF24_250KBPS
-from RF24Network import RF24Network, RF24NetworkHeader
+from pyrf24 import RF24, RF24Network, RF24NetworkHeader, RF24_PA_LOW, RF24_PA_HIGH, RF24_250KBPS
+
 
 class WirelessNode:
 

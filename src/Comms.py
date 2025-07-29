@@ -9,7 +9,7 @@ from paho.mqtt.subscribeoptions import SubscribeOptions
 # User config, depends on your HW and Network config
 #
 MQTT_BROKER = '127.0.0.1'
-NRF_PINS = (25, 8)
+NRF_PINS = (25, 0)
 MQTT_NODE_NAME = 'RCC_Station'
 
 #
