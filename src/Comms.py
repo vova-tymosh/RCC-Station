@@ -25,6 +25,7 @@ NRF_INTRO = 'A'
 NRF_SUB = 'B'
 NRF_LIST_CAB = 'C'
 NRF_HEARTBEAT = 'H'
+NRF_PING = '0'
 MQ_INTRO = 'intro'
 MQ_INTRO_REQ = 'introreq'
 
@@ -180,6 +181,11 @@ class Broker:
         p = bytes(p, 'utf-8')
         nrf.write(addr, p)
 
+    def processPing(self, addr, message):
+        p = NRF_PING
+        p = bytes(p, 'utf-8') + message
+        nrf.write(addr, p)
+
     def getHeartbeatFmt(self):
         if 'Format' in self.known[self.addr]:
             return self.known[self.addr]['Format']
@@ -206,6 +212,10 @@ class Broker:
         if action == NRF_LIST_CAB:
             self.processListCab(addr)
             return
+        if action == NRF_PING:
+            self.processPing(addr, message)
+            return
+
 
         self.addr = addr
         fwdPacket = translator.toMq(action, message)
