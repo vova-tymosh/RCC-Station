@@ -1,4 +1,5 @@
 import re
+import time
 import struct
 import logging
 import Wireless
@@ -248,6 +249,9 @@ class TransportNrf:
     def start(self):
         self.wireless.start()
 
+    def stop(self):
+        self.wireless.stop()
+
     def write(self, addr, packet):
         addr = int(addr)
         logging.debug(f'[NF] >: {addr}/{packet}')
@@ -273,7 +277,10 @@ class TransportMqtt:
         self.mqttClient.connect(MQTT_BROKER)
         options = SubscribeOptions(qos = 1, noLocal = True)
         self.mqttClient.subscribe(f'{MQ_PREFIX}/#', options = options)
-        self.mqttClient.loop_forever()
+        self.mqttClient.loop_start()
+
+    def stop(self):
+        self.mqttClient.loop_stop()
 
     def write(self, addr, packet, retain = False):
         topic = f'{MQ_PREFIX}/{addr}/{packet[0]}'
@@ -307,3 +314,12 @@ if __name__ == '__main__':
 
     nrf.start()
     mq.start()
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        nrf.stop()
+        mq.stop()
+
+    logging.error('Stop')

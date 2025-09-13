@@ -70,10 +70,12 @@ class Wireless:
     try:
       while self.run:
         self.network.update()
-        while self.network.available():
+        if self.network.available():
           header, payload = self.network.read()
           if len(payload) > 0 and self.onReceive:
             self.onReceive(header.from_node, payload)
+        else:
+          time.sleep(0.001)
         with self.nodesLock:
           for node in self.nodes.values():
             node.pop()
