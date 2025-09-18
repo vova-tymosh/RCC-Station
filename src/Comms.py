@@ -171,11 +171,24 @@ class Broker:
         self.known[self.addr].update(m)
         logging.info(f'New entry: {self.known[self.addr]}')
 
-    def processSub(self, addr, subTo):
+    def subscribe(self, addr, subTo):
         subTo = int(subTo)
+        self.unsubscribe(addr)
         self.subscription[addr] = subTo
         self.subscription[subTo] = addr
-        logging.info(f'Subscribed from: {addr} to {subTo}')
+        logging.info(f'Subscribe: {addr} and {subTo}')
+
+    def forget(self, addr):
+        logging.info(f'Forget: {addr}')
+        if addr in self.known:
+            del self.known[addr]
+
+    def unsubscribe(self, addr):
+        if addr in self.subscription:
+            logging.info(f'Unsubscribe: {addr} and {self.subscription[addr]}')
+            subTo = self.subscription[addr]
+            del self.subscription[addr]
+            del self.subscription[subTo]
 
     def processListCab(self, addr):
         p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f"{fields['Type']}{NRF_SEPARATOR}{fields['Addr']}{NRF_SEPARATOR}{fields['Name']}" for addr, fields in self.known.items()] )
@@ -208,7 +221,7 @@ class Broker:
             nrf.write(addr, bytes([ord(NRF_INTRO), 0]))
             return
         if action == NRF_SUB:
-            self.processSub(addr, message[0])
+            self.subscribe(addr, message[0])
             return
         if action == NRF_LIST_CAB:
             self.processListCab(addr)
@@ -245,6 +258,7 @@ class TransportNrf:
     def __init__(self):
         self.wireless = Wireless.Wireless(*NRF_PINS)
         self.wireless.onReceive = self.onReceive
+        self.wireless.onDisconnect = self.onDisconnect
 
     def start(self):
         self.wireless.start()
@@ -256,6 +270,10 @@ class TransportNrf:
         addr = int(addr)
         logging.debug(f'[NF] >: {addr}/{packet}')
         self.wireless.write(addr, packet)
+
+    def onDisconnect(self, node):
+        broker.forget(node)
+        broker.unsubscribe(node)
 
     def onReceive(self, addr, packet):
         packet = bytes(packet)
