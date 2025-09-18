@@ -58,9 +58,9 @@ def buildTrasnlationMap():
 #
 def translateIntro(toNrf, k, v):
     if toNrf:
-        broker.processIntro(v)
+        broker.processIntro(v, 'MQ')
     else:
-        broker.processIntro(v.decode())
+        broker.processIntro(v.decode(), 'NRF')
 
 def translateHeartbeat(toNrf, k, v):
     fmt = broker.getHeartbeatFmt()
@@ -161,9 +161,9 @@ class Broker:
     def updateFmt(self, fmt):
         return '<' + fmt[1:]
 
-    def processIntro(self, message):
+    def processIntro(self, message, proto):
         fields = message.split(NRF_SEPARATOR)
-        m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3] }
+        m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3], 'Proto': proto}
         if len(fields) > 4:
             m['Format'] = self.updateFmt(fields[4])
         if self.addr not in self.known:
@@ -238,7 +238,7 @@ class Broker:
         fwdMqAddr = self.getForwardMq(addr)
         mq.write(fwdMqAddr, fwdPacket)
         fwdNrfAddr = self.getForwardNrf(addr)
-        if fwdNrfAddr:
+        if fwdNrfAddr and self.known[fwdNrfAddr]['Proto'] == 'NRF':
             nrf.write(fwdNrfAddr, bytes(action, 'utf-8') + message)
 
     def receiveMq(self, addr, action, message):
@@ -248,7 +248,7 @@ class Broker:
             return
         self.addr = addr
         fwdPacket = translator.toNrf(action, message)
-        if fwdPacket is not None:
+        if fwdPacket is not None and self.known[addr]['Proto'] == 'NRF':
             nrf.write(addr, fwdPacket)
 
 #
