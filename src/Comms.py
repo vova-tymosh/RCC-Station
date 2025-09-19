@@ -248,8 +248,12 @@ class Broker:
             return
         self.addr = addr
         fwdPacket = translator.toNrf(action, message)
-        if fwdPacket is not None and self.known[addr]['Proto'] == 'NRF':
-            nrf.write(addr, fwdPacket)
+        if fwdPacket is not None:
+            if self.known[addr]['Proto'] == 'NRF':
+                nrf.write(addr, fwdPacket)
+            fwdNrfAddr = self.getForwardNrf(addr)
+            if fwdNrfAddr:
+                nrf.write(fwdNrfAddr, fwdPacket)
 
 #
 # Phisical connection to Nrf
@@ -258,7 +262,6 @@ class TransportNrf:
     def __init__(self):
         self.wireless = Wireless.Wireless(*NRF_PINS)
         self.wireless.onReceive = self.onReceive
-        self.wireless.onDisconnect = self.onDisconnect
 
     def start(self):
         self.wireless.start()
@@ -270,10 +273,6 @@ class TransportNrf:
         addr = int(addr)
         logging.debug(f'[NF] >: {addr}/{packet}')
         self.wireless.write(addr, packet)
-
-    def onDisconnect(self, node):
-        broker.forget(node)
-        broker.unsubscribe(node)
 
     def onReceive(self, addr, packet):
         packet = bytes(packet)

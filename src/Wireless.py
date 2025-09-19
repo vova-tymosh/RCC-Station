@@ -75,10 +75,8 @@ class Wireless:
 
   def write(self, toNode, payload):
     toNode = int(toNode)
-    if toNode not in self.nodes:
-      with self.nodesLock:
-        self.nodes[toNode] = WirelessNode(toNode, self.writeInternal, self.timeout)
-    self.nodes[toNode].push(payload)
+    if toNode in self.nodes:
+      self.nodes[toNode].push(payload)
 
   def disconnect(self, node):
     if self.onDisconnect:
@@ -94,6 +92,9 @@ class Wireless:
         if self.network.available():
           header, payload = self.network.read()
           needWait = False
+          if header.from_node not in self.nodes:
+            with self.nodesLock:
+              self.nodes[header.from_node] = WirelessNode(header.from_node, self.writeInternal, self.timeout)
           if len(payload) > 0 and self.onReceive:
             self.onReceive(header.from_node, payload)
         with self.nodesLock:
