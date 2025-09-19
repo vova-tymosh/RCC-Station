@@ -2,7 +2,6 @@ import re
 import time
 import struct
 import logging
-import Wireless
 import paho.mqtt.client as mqtt
 from paho.mqtt.subscribeoptions import SubscribeOptions
 
@@ -43,6 +42,7 @@ def buildTrasnlationMap():
         RouteEntry('A',  translateIntro,        'intro',            ),
         RouteEntry('K',  translateStr,          'heartbeat/keys',   ),
         RouteEntry('H',  translateHeartbeat,    'heartbeat/values', ),
+        RouteEntry('H',  translateHeartbeat,    'heartbeat',        ),
         RouteEntry('T',  translateInt,          'throttle',         ),
         RouteEntry('D',  translateDirection,    'direction',        ),
         RouteEntry('P',  translateInt,          'function/get',     ),
@@ -65,9 +65,9 @@ def translateIntro(toNrf, k, v):
 def translateHeartbeat(toNrf, k, v):
     fmt = broker.getHeartbeatFmt()
     if toNrf:
-        v = v.split(NRF_SEPARATOR)
         if fmt is None or len(v) == 0:
             return bytes([0])
+        v = v.split(NRF_SEPARATOR)
         unpacked = [int(i) for i in v]
         return struct.pack(fmt, *unpacked)
     else:
@@ -145,7 +145,10 @@ class Translator:
                 t = entry.traslateFunc(False, '', message)
                 if t != None:
                     topic, messageOut = t
-                    return entry.mqTopic + topic, messageOut
+                    if entry.mqTopic == 'heartbeat/values' and len(messageOut) == 0:
+                        return 'heartbeat', messageOut
+                    else:
+                        return entry.mqTopic + topic, messageOut
 
 #
 # Broker uses tranlator and adds routing capability (which address on Nrf & Mqtt side to route the packet).
@@ -320,6 +323,8 @@ translator = Translator()
 broker = Broker()
 
 if __name__ == '__main__':
+    import Wireless
+
     logging.basicConfig(level=logging.DEBUG,
                         format='%(asctime)s %(message)s',
                         filename='comms.log',
