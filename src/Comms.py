@@ -191,7 +191,8 @@ class Broker:
             logging.info(f'Unsubscribe: {addr} and {self.subscription[addr]}')
             subTo = self.subscription[addr]
             del self.subscription[addr]
-            del self.subscription[subTo]
+            if subTo in self.subscription:
+                del self.subscription[subTo]
 
     def processListCab(self, addr):
         p = NRF_LIST_CAB + NRF_SEPARATOR.join( [f"{fields['Type']}{NRF_SEPARATOR}{fields['Addr']}{NRF_SEPARATOR}{fields['Name']}" for addr, fields in self.known.items()] )
