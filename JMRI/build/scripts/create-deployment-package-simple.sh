@@ -12,7 +12,6 @@ mkdir -p "$PACKAGE_NAME"
 echo "Copying files..."
 cp build/jars/rcc-mqtt-plotter-standalone.jar "$PACKAGE_NAME/"
 cp config.properties "$PACKAGE_NAME/"
-cp build/python/*.py "$PACKAGE_NAME/" 2>/dev/null || true
 cp DEPLOYMENT_GUIDE.md "$PACKAGE_NAME/"
 cp DECODERPRO_INTEGRATION.md "$PACKAGE_NAME/"
 cp SPECIFICATIONS.md "$PACKAGE_NAME/"
@@ -33,7 +32,6 @@ fi
 
 # Create directories
 mkdir -p "$HOME/JMRI/lib"
-mkdir -p "$HOME/JMRI/jython"
 
 # Deploy files
 echo "Installing JAR..."
@@ -42,8 +40,6 @@ cp rcc-mqtt-plotter-standalone.jar "$HOME/JMRI/lib/rcc-mqtt-plotter.jar"
 echo "Installing configuration..."
 cp config.properties "$HOME/JMRI/"
 
-echo "Installing Python scripts..."
-cp *.py "$HOME/JMRI/jython/" 2>/dev/null || true
 
 # Create launcher
 echo "Creating launcher script..."
@@ -83,7 +79,6 @@ echo "- JAR: $HOME/JMRI/lib/rcc-mqtt-plotter.jar"
 echo "- Config: $HOME/JMRI/config.properties"
 echo "- Launcher: $HOME/JMRI/launch-rcc-plotter.sh"
 echo "- Desktop shortcut: $HOME/Desktop/RCC-MQTT-Plotter.desktop"
-echo "- Python scripts: $HOME/JMRI/jython/*.py"
 echo ""
 echo "🚀 How to launch:"
 echo "1. Double-click desktop shortcut: 'RCC MQTT Data Plotter'"
