@@ -176,10 +176,13 @@ class Broker:
 
     def subscribe(self, addr, subTo):
         subTo = int(subTo)
-        self.unsubscribe(addr)
-        self.subscription[addr] = subTo
-        self.subscription[subTo] = addr
-        logging.info(f'Subscribe: {addr} and {subTo}')
+        if addr in self.subscription and subTo in self.subscription and self.subscription[addr] == subTo and self.subscription[subTo] == addr:
+            logging.info(f'Already subscribed: {addr} and {subTo}')
+        else:
+            self.unsubscribe(addr)
+            self.subscription[addr] = subTo
+            self.subscription[subTo] = addr
+            logging.info(f'Subscribe: {addr} and {subTo}')
 
     def forget(self, addr):
         logging.info(f'Forget: {addr}')
