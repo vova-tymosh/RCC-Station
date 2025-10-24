@@ -510,7 +510,7 @@
                 this.updateControlPanel();
             }
 
-            updateControlPanel() {
+            async updateControlPanel() {
                 const controlsContent = document.getElementById('controlsContent');
 
                 if (!this.selectedLocoId) {
@@ -521,18 +521,38 @@
                 const loco = this.locomotives.get(this.selectedLocoId);
                 if (!loco) return;
 
+                // Fetch current throttle and direction from memory
+                let currentThrottle = 0;
+                let currentDirection = 'STOP';
+                
+                try {
+                    const throttleResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_THROTTLE`);
+                    const throttleData = await throttleResp.json();
+                    if (throttleData && throttleData.data && throttleData.data.value) {
+                        currentThrottle = Math.round(parseFloat(throttleData.data.value));
+                    }
+                } catch (e) { }
+                
+                try {
+                    const dirResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_DIRECTION`);
+                    const dirData = await dirResp.json();
+                    if (dirData && dirData.data && dirData.data.value) {
+                        currentDirection = dirData.data.value;
+                    }
+                } catch (e) { }
+
                 controlsContent.innerHTML = `
                     <div class="throttle-container">
-                        <div class="throttle-value" id="throttleValue">0</div>
+                        <div class="throttle-value" id="throttleValue">${currentThrottle}</div>
                         <input type="range" class="throttle-slider" id="throttleSlider" 
-                               min="0" max="100" value="0" orient="vertical"
+                               min="0" max="100" value="${currentThrottle}" orient="vertical"
                                oninput="plotter.setThrottle(this.value)">
                     </div>
                     
                     <div class="direction-buttons">
-                        <button class="dir-btn" onclick="plotter.setDirection('REVERSE')" title="Reverse">▼</button>
-                        <button class="dir-btn" onclick="plotter.setDirection('STOP')" title="Stop">■</button>
-                        <button class="dir-btn" onclick="plotter.setDirection('FORWARD')" title="Forward">▲</button>
+                        <button class="dir-btn ${currentDirection === 'REVERSE' ? 'active' : ''}" onclick="plotter.setDirection('REVERSE')" title="Reverse">▼</button>
+                        <button class="dir-btn ${currentDirection === 'STOP' ? 'active' : ''}" onclick="plotter.setDirection('STOP')" title="Stop">■</button>
+                        <button class="dir-btn ${currentDirection === 'FORWARD' ? 'active' : ''}" onclick="plotter.setDirection('FORWARD')" title="Forward">▲</button>
                     </div>
                 `;
             }
@@ -557,17 +577,25 @@
             }
 
             sendMQTT(topic, payload) {
-                // Send MQTT message via JMRI memory variable or direct publish
-                console.log(`MQTT: ${topic} -> ${payload}`);
-
-                // Store command in memory variable for the bridge to publish
+                // Send MQTT message via JMRI memory variable
+                const cmdData = JSON.stringify({ topic, payload, timestamp: Date.now() });
+                console.log(`MQTT Command: ${topic} -> ${payload}`);
+                
+                // JMRI JSON API supports PUT for setting values
                 fetch('/json/memory/RCC_CMD', {
-                    method: 'POST',
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        name: 'RCC_CMD',
-                        value: JSON.stringify({ topic, payload, timestamp: Date.now() })
+                        type: 'memory',
+                        data: {
+                            name: 'RCC_CMD',
+                            value: cmdData
+                        }
                     })
+                }).then(response => {
+                    if (!response.ok) {
+                        console.error('Failed to send command:', response.status);
+                    }
                 }).catch(err => console.error('Error sending MQTT command:', err));
             }
 

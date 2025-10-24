@@ -48,6 +48,15 @@ class RccMqttBridge(MqttCallback):
             print("  - RCC_LOCO_LIST (JSON list of locomotives)")
             print("  - RCC_3_SPEED, RCC_3_THROTTLE, etc. (individual values)")
             print("")
+            print("To send commands, set RCC_CMD memory variable with JSON:")
+            print('  {"topic": "cab/3/throttle", "payload": "50"}')
+            print("")
+            
+            # Create command memory variable
+            self.set_memory("RCC_CMD", "")
+            
+            # Start command monitoring
+            self.start_command_monitor()
             print("Access via web: http://192.168.20.62:12080/web/rcc-plotter.html")
             print("=" * 60)
             
@@ -114,14 +123,24 @@ class RccMqttBridge(MqttCallback):
             
             # Create telemetry dict
             telemetry = {}
+            bitstate = 0
             for i in range(len(keys)):
                 try:
                     key = keys[i].strip().lower()
                     value = float(values[i].strip())
                     telemetry[key] = value
+                    if key == 'bitstate':
+                        bitstate = int(value)
                 except Exception as e:
                     print("Error parsing value at index " + str(i) + ": " + str(e))
                     pass
+            
+            # Extract direction from bitstate (2 highest bits)
+            # 0 = REVERSE, 1 = FORWARD, 2 = STOP
+            direction_bits = (bitstate >> 30) & 0x3
+            direction_map = {0: 'REVERSE', 1: 'FORWARD', 2: 'STOP'}
+            direction = direction_map.get(direction_bits, 'UNKNOWN')
+            telemetry['direction'] = direction
             
             # Update locomotive data
             if loco_id not in self.locomotives:
@@ -204,8 +223,51 @@ class RccMqttBridge(MqttCallback):
         except Exception as e:
             print("Error setting memory " + name + ": " + str(e))
     
+    def start_command_monitor(self):
+        """Monitor RCC_CMD memory variable for commands to publish"""
+        from java.util import Timer, TimerTask
+        
+        class CommandMonitorTask(TimerTask):
+            def __init__(self, bridge):
+                self.bridge = bridge
+                self.last_cmd = None
+                
+            def run(self):
+                try:
+                    memory = self.bridge.memory_manager.getMemory("RCC_CMD")
+                    if memory is None:
+                        return
+                    
+                    cmd_value = memory.getValue()
+                    if cmd_value and cmd_value != self.last_cmd:
+                        self.last_cmd = cmd_value
+                        self.bridge.process_command(str(cmd_value))
+                except Exception as e:
+                    print("Error in command monitor: " + str(e))
+        
+        self.cmd_timer = Timer()
+        self.cmd_task = CommandMonitorTask(self)
+        self.cmd_timer.scheduleAtFixedRate(self.cmd_task, 100, 100)  # Check every 100ms
+        print("✓ Command monitor started")
+    
+    def process_command(self, cmd_json):
+        """Process and publish a command from the web interface"""
+        try:
+            cmd = json.loads(cmd_json)
+            topic = cmd.get('topic')
+            payload = str(cmd.get('payload', ''))
+            
+            if topic and self.mqtt_client and self.mqtt_client.isConnected():
+                # Publish the command
+                self.mqtt_client.publish(topic, payload.encode('utf-8'), 0, False)
+                print("Published: " + topic + " -> " + payload)
+        except Exception as e:
+            print("Error processing command: " + str(e))
+    
     def stop(self):
         try:
+            if hasattr(self, 'cmd_timer') and self.cmd_timer:
+                self.cmd_timer.cancel()
             if self.mqtt_client and self.mqtt_client.isConnected():
                 self.mqtt_client.disconnect()
                 self.mqtt_client.close()
