@@ -50,14 +50,17 @@
             min-width: 0;
         }
 
-        .loco-panel {
+        .loco-panel,
+        .control-panel {
             background: white;
             padding: 15px;
             border-radius: 8px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
         }
 
-        .loco-panel h3 {
+        .loco-panel h3,
+        .control-panel h3 {
             margin: 0 0 15px 0;
             color: #333;
             font-size: 16px;
@@ -118,6 +121,92 @@
             margin-top: 4px;
         }
 
+        .throttle-container {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: center;
+            margin: 10px 0 15px 0;
+            position: relative;
+        }
+
+        .throttle-slider {
+            writing-mode: bt-lr;
+            -webkit-appearance: slider-vertical;
+            width: 8px;
+            height: 120px;
+            background: linear-gradient(to top, #667eea, #764ba2);
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .throttle-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: white;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #667eea;
+        }
+
+        .throttle-slider::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: white;
+            cursor: pointer;
+            border-radius: 50%;
+            border: 2px solid #667eea;
+        }
+
+        .throttle-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #667eea;
+            min-width: 45px;
+            text-align: left;
+            position: absolute;
+            left: 15px;
+        }
+
+        .direction-buttons {
+            display: flex;
+            flex-direction: row;
+            gap: 5px;
+            width: 100%;
+            justify-content: space-between;
+        }
+
+        .dir-btn {
+            flex: 1;
+            padding: 8px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            background: #f8f9fa;
+            cursor: pointer;
+            font-size: 18px;
+            transition: all 0.2s;
+            text-align: center;
+        }
+
+        .dir-btn:hover {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .dir-btn:active {
+            transform: scale(0.95);
+        }
+
+        .dir-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+            color: white;
+        }
+
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -165,6 +254,13 @@
                 <h3>🚂 Locomotives</h3>
                 <div id="locoList">
                     <em style="color: #999;">Waiting...</em>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <h3>🎮 Controls</h3>
+                <div id="controlsContent">
+                    <em style="color: #999;">Select a locomotive</em>
                 </div>
             </div>
         </div>
@@ -321,6 +417,7 @@
                 if (!this.selectedLocoId) {
                     this.selectedLocoId = id;
                     this.addLocoToCharts(loco);
+                    this.updateControlPanel();
                 }
 
                 console.log('Added locomotive:', loco.name);
@@ -410,6 +507,68 @@
                 this.selectedLocoId = locoId;
                 this.updateLocoDisplay();
                 this.updateAllCharts();
+                this.updateControlPanel();
+            }
+
+            updateControlPanel() {
+                const controlsContent = document.getElementById('controlsContent');
+
+                if (!this.selectedLocoId) {
+                    controlsContent.innerHTML = '<em style="color: #999;">Select a locomotive</em>';
+                    return;
+                }
+
+                const loco = this.locomotives.get(this.selectedLocoId);
+                if (!loco) return;
+
+                controlsContent.innerHTML = `
+                    <div class="throttle-container">
+                        <div class="throttle-value" id="throttleValue">0</div>
+                        <input type="range" class="throttle-slider" id="throttleSlider" 
+                               min="0" max="100" value="0" orient="vertical"
+                               oninput="plotter.setThrottle(this.value)">
+                    </div>
+                    
+                    <div class="direction-buttons">
+                        <button class="dir-btn" onclick="plotter.setDirection('REVERSE')" title="Reverse">▼</button>
+                        <button class="dir-btn" onclick="plotter.setDirection('STOP')" title="Stop">■</button>
+                        <button class="dir-btn" onclick="plotter.setDirection('FORWARD')" title="Forward">▲</button>
+                    </div>
+                `;
+            }
+
+            setThrottle(value) {
+                document.getElementById('throttleValue').textContent = value;
+                if (this.selectedLocoId) {
+                    this.sendMQTT(`cab/${this.selectedLocoId}/throttle`, value);
+                }
+            }
+
+
+
+            setDirection(direction) {
+                if (this.selectedLocoId) {
+                    this.sendMQTT(`cab/${this.selectedLocoId}/direction`, direction);
+
+                    // Visual feedback
+                    document.querySelectorAll('.dir-btn').forEach(btn => btn.classList.remove('active'));
+                    event.target.classList.add('active');
+                }
+            }
+
+            sendMQTT(topic, payload) {
+                // Send MQTT message via JMRI memory variable or direct publish
+                console.log(`MQTT: ${topic} -> ${payload}`);
+
+                // Store command in memory variable for the bridge to publish
+                fetch('/json/memory/RCC_CMD', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: 'RCC_CMD',
+                        value: JSON.stringify({ topic, payload, timestamp: Date.now() })
+                    })
+                }).catch(err => console.error('Error sending MQTT command:', err));
             }
 
             updateAllCharts() {
