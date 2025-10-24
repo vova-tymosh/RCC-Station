@@ -73,11 +73,26 @@
             border: 2px solid #dee2e6;
             border-radius: 6px;
             transition: all 0.2s;
+            cursor: pointer;
         }
 
         .loco-item:hover {
             border-color: #667eea;
             transform: translateX(3px);
+        }
+
+        .loco-item.selected {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+            color: white;
+        }
+
+        .loco-item.selected .loco-name {
+            color: white;
+        }
+
+        .loco-item.selected .loco-details {
+            color: rgba(255, 255, 255, 0.9);
         }
 
         .loco-color {
@@ -184,6 +199,7 @@
                 this.colors = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a', '#feca57'];
                 this.colorIndex = 0;
                 this.isConnected = false;
+                this.selectedLocoId = null;
                 this.init();
             }
 
@@ -199,7 +215,7 @@
                     maintainAspectRatio: false,
                     plugins: { legend: { display: true, position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
                     scales: {
-                        x: { type: 'time', time: { unit: 'second', displayFormats: { second: 'HH:mm:ss' } }, ticks: { maxRotation: 0 } },
+                        x: { type: 'time', time: { unit: 'second', displayFormats: { second: 'mm:ss' } }, ticks: { maxRotation: 0 } },
                         y: { beginAtZero: true, ticks: { font: { size: 11 } } }
                     },
                     elements: { point: { radius: 0 }, line: { tension: 0.3, borderWidth: 2 } },
@@ -300,7 +316,13 @@
                 };
                 this.locomotives.set(id, loco);
                 this.colorIndex++;
-                this.addLocoToCharts(loco);
+
+                // Auto-select first locomotive
+                if (!this.selectedLocoId) {
+                    this.selectedLocoId = id;
+                    this.addLocoToCharts(loco);
+                }
+
                 console.log('Added locomotive:', loco.name);
             }
 
@@ -324,7 +346,7 @@
                 if (!loco) return;
 
                 const now = new Date();
-                const maxPoints = 60;
+                const maxPoints = 30;
 
                 ['speed', 'throttle', 'battery', 'current', 'temp'].forEach(key => {
                     if (telemetry[key] !== undefined && loco.data[key]) {
@@ -340,7 +362,10 @@
 
                 if (telemetry.distance !== undefined) loco.distance = telemetry.distance;
 
-                this.updateCharts(loco);
+                // Only update charts if this is the selected locomotive
+                if (this.selectedLocoId === locoId) {
+                    this.updateCharts(loco);
+                }
             }
 
             updateCharts(loco) {
@@ -362,14 +387,16 @@
             updateLocoDisplay() {
                 const list = document.getElementById('locoList');
                 if (this.locomotives.size === 0) {
-                    list.innerHTML = '<em style="color: #999;">No locomotives discovered yet...</em>';
+                    list.innerHTML = '<em style="color: #999;">Waiting...</em>';
                     return;
                 }
 
                 let html = '';
                 this.locomotives.forEach(loco => {
+                    const isSelected = this.selectedLocoId === loco.id;
+                    const selectedClass = isSelected ? 'selected' : '';
                     html += `
-                        <div class="loco-item">
+                        <div class="loco-item ${selectedClass}" onclick="plotter.selectLocomotive('${loco.id}')">
                             <span class="loco-color" style="background: ${loco.color}"></span>
                             <span class="loco-name">${loco.name}</span>
                             <div class="loco-details">Address: ${loco.address} • Distance: ${loco.distance.toFixed(1)}</div>
@@ -379,11 +406,53 @@
                 list.innerHTML = html;
             }
 
+            selectLocomotive(locoId) {
+                this.selectedLocoId = locoId;
+                this.updateLocoDisplay();
+                this.updateAllCharts();
+            }
+
+            updateAllCharts() {
+                // Clear all charts
+                Object.values(this.charts).forEach(chart => {
+                    chart.data.datasets = [];
+                });
+
+                // Add only selected locomotive's data
+                if (this.selectedLocoId) {
+                    const loco = this.locomotives.get(this.selectedLocoId);
+                    if (loco) {
+                        // Create datasets with existing data
+                        const createDataset = (label, data, dash = false) => ({
+                            label,
+                            data: data || [],
+                            borderColor: loco.color,
+                            backgroundColor: loco.color + '30',
+                            borderDash: dash ? [5, 5] : [],
+                            fill: false
+                        });
+
+                        this.charts.speed.data.datasets.push(createDataset(`${loco.name} Speed`, loco.data.speed));
+                        this.charts.speed.data.datasets.push(createDataset(`${loco.name} Throttle`, loco.data.throttle, true));
+                        this.charts.power.data.datasets.push(createDataset(`${loco.name} Battery`, loco.data.battery));
+                        this.charts.power.data.datasets.push(createDataset(`${loco.name} Current`, loco.data.current, true));
+                        this.charts.temp.data.datasets.push(createDataset(`${loco.name} Temp`, loco.data.temp));
+                        this.charts.pressure.data.datasets.push(createDataset(`${loco.name} Pressure`, loco.data.pressure));
+
+                        // Update all charts
+                        Object.values(this.charts).forEach(chart => chart.update('none'));
+                    }
+                }
+            }
+
 
         }
 
-        // Start the plotter
-        new RccPlotter();
+        // Start the plotter and make it globally accessible
+        let plotter;
+        document.addEventListener('DOMContentLoaded', () => {
+            plotter = new RccPlotter();
+        });
     </script>
 </body>
 
