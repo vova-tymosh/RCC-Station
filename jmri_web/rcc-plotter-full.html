@@ -570,6 +570,22 @@
                 if (this.selectedLocoId) {
                     this.sendMQTT(`cab/${this.selectedLocoId}/direction`, direction);
 
+                    // Update throttle based on direction
+                    const slider = document.getElementById('throttleSlider');
+                    const currentThrottle = parseInt(slider.value);
+                    
+                    if (direction === 'STOP') {
+                        // Set throttle to 0 when stopping
+                        slider.value = 0;
+                        this.setThrottle(0);
+                    } else if (direction === 'FORWARD' || direction === 'REVERSE') {
+                        // If throttle is 0, set to a default value (e.g., 30)
+                        if (currentThrottle === 0) {
+                            slider.value = 0;
+                            this.setThrottle(0);
+                        }
+                    }
+
                     // Visual feedback
                     document.querySelectorAll('.dir-btn').forEach(btn => btn.classList.remove('active'));
                     event.target.classList.add('active');
