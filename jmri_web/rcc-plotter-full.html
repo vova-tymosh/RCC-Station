@@ -270,8 +270,40 @@
         }
 
         @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                padding: 10px;
+                gap: 10px;
+            }
+
+            .sidebar {
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            .loco-panel,
+            .control-panel {
+                width: 100%;
+                margin-bottom: 0;
+            }
+
             .charts-grid {
                 grid-template-columns: 1fr;
+            }
+
+            .loco-item {
+                font-size: 12px;
+                padding: 8px;
+            }
+
+            .throttle-slider {
+                height: 100px;
+            }
+
+            .functions-grid {
+                grid-template-columns: repeat(3, 1fr);
             }
         }
     </style>
@@ -625,9 +657,9 @@
                     </div>
                     
                     <div class="direction-buttons">
-                        <button class="dir-btn ${currentDirection === 'REVERSE' ? 'active' : ''}" onclick="plotter.setDirection('REVERSE')" title="Reverse">▼</button>
+                        <button class="dir-btn ${currentDirection === 'REVERSE' ? 'active' : ''}" onclick="plotter.setDirection('REVERSE')" title="Reverse">◀</button>
                         <button class="dir-btn ${currentDirection === 'STOP' ? 'active' : ''}" onclick="plotter.setDirection('STOP')" title="Stop">■</button>
-                        <button class="dir-btn ${currentDirection === 'FORWARD' ? 'active' : ''}" onclick="plotter.setDirection('FORWARD')" title="Forward">▲</button>
+                        <button class="dir-btn ${currentDirection === 'FORWARD' ? 'active' : ''}" onclick="plotter.setDirection('FORWARD')" title="Forward">▶</button>
                     </div>
                 `;
                 
