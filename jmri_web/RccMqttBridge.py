@@ -8,10 +8,13 @@ import jmri
 import java
 import json
 import time
+from java.lang import String
 from org.eclipse.paho.client.mqttv3 import MqttClient, MqttConnectOptions, MqttCallback, MqttMessage
+from org.slf4j import LoggerFactory
 
 class RccMqttBridge(MqttCallback):
     def __init__(self):
+        self.log = LoggerFactory.getLogger("jmri.jython.RccMqttBridge")
         self.mqtt_broker = "tcp://localhost:1883"
         self.client_id = "JMRI_RCC_Bridge"
         self.mqtt_client = None
@@ -19,14 +22,14 @@ class RccMqttBridge(MqttCallback):
         self.locomotive_keys = {}
         self.memory_manager = jmri.InstanceManager.getDefault(jmri.MemoryManager)
         
-        print("=" * 60)
-        print("RCC MQTT Bridge for JMRI")
-        print("=" * 60)
+        self.log.info("=" * 60)
+        self.log.info("RCC MQTT Bridge for JMRI")
+        self.log.info("=" * 60)
         self.connect_mqtt()
         
     def connect_mqtt(self):
         try:
-            print("Connecting to MQTT broker: " + self.mqtt_broker)
+            self.log.info("Connecting to MQTT broker: " + self.mqtt_broker)
             self.mqtt_client = MqttClient(self.mqtt_broker, self.client_id)
             self.mqtt_client.setCallback(self)
             
@@ -42,8 +45,8 @@ class RccMqttBridge(MqttCallback):
             self.mqtt_client.subscribe("cab/+/intro")
             self.mqtt_client.subscribe("cab/+/function/list")
             
-            print("[OK] Connected to MQTT broker")
-            print("[OK] Subscribed to RCC topics")
+            self.log.info("Connected to MQTT broker")
+            self.log.info("Subscribed to RCC topics")
             self.set_memory("RCC_STATUS", "CONNECTED")
             
             # Create command memory variable
@@ -51,33 +54,27 @@ class RccMqttBridge(MqttCallback):
             
             # Start command monitoring
             self.start_command_monitor()
-            print("[OK] Bridge ready - /web/rcc-plotter.html")
-            print("=" * 60)
+            self.log.info("Bridge ready - /web/rcc-plotter.html")
+            self.log.info("=" * 60)
             
         except Exception as e:
-            print("[ERROR] Failed to connect: " + str(e))
+            self.log.error("Failed to connect: " + str(e))
             self.set_memory("RCC_STATUS", "DISCONNECTED")
     
     def connectionLost(self, cause):
-        print("[ERROR] MQTT connection lost: " + str(cause))
+        self.log.error("MQTT connection lost: " + str(cause))
         self.set_memory("RCC_STATUS", "DISCONNECTED")
-        print("Attempting to reconnect...")
+        self.log.info("Attempting to reconnect...")
         try:
             self.connect_mqtt()
         except Exception as e:
-            print("Reconnection failed: " + str(e))
+            self.log.error("Reconnection failed: " + str(e))
     
     def messageArrived(self, topic, message):
         try:
-            # Handle payload conversion - convert byte array to string
             payload_bytes = message.getPayload()
-            
-            # In Jython, getPayload() returns a byte array
-            # Convert it properly to a Python string
-            from java.lang import String
             java_string = String(payload_bytes, "UTF-8")
-            payload = str(java_string)  # Convert to Python string
-            
+            payload = str(java_string)            
             topic_str = str(topic)
             
             if "/heartbeat/values" in topic_str:
@@ -91,9 +88,9 @@ class RccMqttBridge(MqttCallback):
                 
         except Exception as e:
             import traceback
-            print("Error processing message: " + str(e))
-            print("Topic: " + str(topic))
-            print("Traceback:")
+            self.log.error("Error processing message: " + str(e))
+            self.log.error("Topic: " + str(topic))
+            self.log.error("Traceback:")
             traceback.print_exc()
     
     def deliveryComplete(self, token):
@@ -129,7 +126,6 @@ class RccMqttBridge(MqttCallback):
                     pass
             
             # Extract direction from bitstate (2 highest bits)
-            # 0 = REVERSE, 1 = FORWARD, 2 = STOP
             direction_bits = (bitstate >> 30) & 0x3
             direction_map = {0: 'REVERSE', 1: 'FORWARD', 2: 'STOP'}
             direction = direction_map.get(direction_bits, 'UNKNOWN')
@@ -171,7 +167,7 @@ class RccMqttBridge(MqttCallback):
             
         except Exception as e:
             import traceback
-            print("Error in process_heartbeat: " + str(e))
+            self.log.error("Error in process_heartbeat: " + str(e))
             traceback.print_exc()
     
     def process_keys(self, topic, payload):
@@ -183,7 +179,7 @@ class RccMqttBridge(MqttCallback):
             keys = payload.strip().split(",")
             self.locomotive_keys[loco_id] = keys
         except Exception as e:
-            print("Error in process_keys: " + str(e))
+            self.log.error("Error in process_keys: " + str(e))
     
     def process_intro(self, topic, payload):
         try:
@@ -201,13 +197,13 @@ class RccMqttBridge(MqttCallback):
                 self.locomotives[loco_id]['name'] = parts[2].strip()
                 self.locomotives[loco_id]['version'] = parts[3].strip()
                 
-                print("Loco " + loco_id + " introduced: " + parts[2].strip() + " (v" + parts[3].strip() + ")")
+                self.log.info("Loco " + loco_id + " introduced: " + parts[2].strip() + " (v" + parts[3].strip() + ")")
                 self.update_loco_list()
                 
                 # Schedule function list request to run outside callback thread
                 self.schedule_function_list_request(loco_id)
         except Exception as e:
-            print("Error in process_intro: " + str(e))
+            self.log.error("Error in process_intro: " + str(e))
     
     def schedule_function_list_request(self, loco_id):
         """Schedule a function list request to run after a short delay"""
@@ -232,12 +228,12 @@ class RccMqttBridge(MqttCallback):
                 topic = "cab/" + loco_id + "/function/list/req"
                 # Use same pattern as process_command - empty string payload
                 self.mqtt_client.publish(topic, "".encode('utf-8'), 0, False)
-                print("[OK] Requested function list for loco " + loco_id)
+                self.log.info("Requested function list for loco " + loco_id)
             else:
-                print("[ERROR] Cannot request function list - MQTT not connected")
+                self.log.warn("Cannot request function list - MQTT not connected")
         except Exception as e:
             import traceback
-            print("[ERROR] Error requesting function list: " + str(e))
+            self.log.error("Error requesting function list: " + str(e))
             traceback.print_exc()
     
     def process_function_list(self, topic, payload):
@@ -265,7 +261,7 @@ class RccMqttBridge(MqttCallback):
             # Store in locomotive data
             if loco_id in self.locomotives:
                 self.locomotives[loco_id]['functions'] = functions
-                print("Loco " + loco_id + " has " + str(len(functions)) + " functions: " + 
+                self.log.info("Loco " + loco_id + " has " + str(len(functions)) + " functions: " + 
                       ", ".join([f['name'] for f in functions]))
                 
                 # Store function list in memory as JSON
@@ -275,7 +271,7 @@ class RccMqttBridge(MqttCallback):
             
         except Exception as e:
             import traceback
-            print("Error in process_function_list: " + str(e))
+            self.log.error("Error in process_function_list: " + str(e))
             traceback.print_exc()
     
     def update_loco_list(self):
@@ -298,7 +294,7 @@ class RccMqttBridge(MqttCallback):
                 memory = self.memory_manager.newMemory(name, name)
             memory.setValue(value)
         except Exception as e:
-            print("Error setting memory " + name + ": " + str(e))
+            self.log.error("Error setting memory " + name + ": " + str(e))
     
     def start_command_monitor(self):
         """Monitor RCC_CMD memory variable for commands to publish"""
@@ -320,12 +316,12 @@ class RccMqttBridge(MqttCallback):
                         self.last_cmd = cmd_value
                         self.bridge.process_command(str(cmd_value))
                 except Exception as e:
-                    print("Error in command monitor: " + str(e))
+                    self.bridge.log.error("Error in command monitor: " + str(e))
         
         self.cmd_timer = Timer()
         self.cmd_task = CommandMonitorTask(self)
         self.cmd_timer.scheduleAtFixedRate(self.cmd_task, 100, 100)  # Check every 100ms
-        print("[OK] Command monitor started")
+        self.log.info("Command monitor started")
     
     def process_command(self, cmd_json):
         """Process and publish a command from the web interface"""
@@ -337,9 +333,9 @@ class RccMqttBridge(MqttCallback):
             if topic and self.mqtt_client and self.mqtt_client.isConnected():
                 # Publish the command
                 self.mqtt_client.publish(topic, payload.encode('utf-8'), 0, False)
-                print("Published: " + topic + " -> " + payload)
+                self.log.info("Published: " + topic + " -> " + payload)
         except Exception as e:
-            print("Error processing command: " + str(e))
+            self.log.error("Error processing command: " + str(e))
     
     def stop(self):
         try:
@@ -349,9 +345,9 @@ class RccMqttBridge(MqttCallback):
                 self.mqtt_client.disconnect()
                 self.mqtt_client.close()
             self.set_memory("RCC_STATUS", "STOPPED")
-            print("RCC MQTT Bridge stopped")
+            self.log.info("RCC MQTT Bridge stopped")
         except Exception as e:
-            print("Error stopping: " + str(e))
+            self.log.error("Error stopping: " + str(e))
 
 # Global instance
 rcc_bridge = None
@@ -361,7 +357,8 @@ def start_bridge():
     if rcc_bridge is None:
         rcc_bridge = RccMqttBridge()
     else:
-        print("Bridge already running")
+        log = LoggerFactory.getLogger("jmri.jython.RccMqttBridge")
+        log.warn("Bridge already running")
 
 def stop_bridge():
     global rcc_bridge
@@ -369,7 +366,8 @@ def stop_bridge():
         rcc_bridge.stop()
         rcc_bridge = None
     else:
-        print("Bridge not running")
+        log = LoggerFactory.getLogger("jmri.jython.RccMqttBridge")
+        log.warn("Bridge not running")
 
 # Auto-start
 start_bridge()
