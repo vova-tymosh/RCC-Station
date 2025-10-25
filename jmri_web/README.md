@@ -12,20 +12,15 @@ This folder contains the web-based integration of the RCC MQTT Data Plotter with
   - Stores telemetry data in JMRI memory variables
   - Deploy to: `~/JMRI/jython/RccMqttBridge.py`
 
-- **`rcc-plotter-full.html`** - Complete web interface with real-time charts
+- **`rcc-plotter.html`** - Complete web interface with real-time charts
   - Beautiful UI with gradient header
-  - 6 real-time charts (Speed, Throttle, Battery, Current, Temperature, Pressure)
+  - Throttle, direction, and function controls
+  - 4 real-time charts (Speed & Throttle, Battery & Current, Temperature, Pressure)
   - Multi-locomotive support with color coding
-  - Live data log
+  - Responsive mobile layout
   - Deploy to: `~/JMRI/web/rcc-plotter.html`
 
-### Testing & Documentation
-
-- **`rcc-plotter-minimal.html`** - Minimal test page for verifying JMRI API connectivity
-  - Tests JMRI JSON API connection
-  - Tests Memory API access
-  - Tests Roster API access
-  - Useful for troubleshooting
+### Documentation
 
 - **`RCC_WEB_PLOTTER_GUIDE.md`** - Complete user guide
   - Quick start instructions
@@ -35,17 +30,17 @@ This folder contains the web-based integration of the RCC MQTT Data Plotter with
 
 ## Deployment
 
-### To Raspberry Pi (192.168.20.62)
+### To Raspberry Pi
 
 ```bash
 # Deploy Python bridge
-scp RccMqttBridge.py vova@192.168.20.62:~/JMRI/jython/
+scp RccMqttBridge.py user@raspberry-pi:~/JMRI/jython/
 
 # Deploy web interface
-scp rcc-plotter-full.html vova@192.168.20.62:~/JMRI/web/rcc-plotter.html
+scp rcc-plotter.html user@raspberry-pi:~/JMRI/web/rcc-plotter.html
 
 # Deploy guide
-scp RCC_WEB_PLOTTER_GUIDE.md vova@192.168.20.62:~/JMRI/
+scp RCC_WEB_PLOTTER_GUIDE.md user@raspberry-pi:~/JMRI/
 ```
 
 ## Usage
@@ -56,7 +51,7 @@ scp RCC_WEB_PLOTTER_GUIDE.md vova@192.168.20.62:~/JMRI/
    - Execute
 
 2. **Open web interface:**
-   - http://192.168.20.62:12080/web/rcc-plotter.html
+   - http://raspberry-pi:12080/web/rcc-plotter.html
 
 ## Architecture
 
@@ -77,12 +72,13 @@ Web Interface (Browser)
 ## Features
 
 - ✅ Real-time telemetry visualization
+- ✅ Throttle, direction, and function controls
 - ✅ Multi-locomotive support
-- ✅ Color-coded charts
+- ✅ Dynamic function buttons based on locomotive capabilities
 - ✅ JMRI native integration
 - ✅ No external dependencies
-- ✅ Responsive design
-- ✅ Live data logging
+- ✅ Responsive mobile design
+- ✅ Live data updates
 
 ## Related
 
@@ -93,4 +89,4 @@ This is the web-based version of the standalone Java application in the `JMRI/` 
 
 ## Status
 
-✅ **Deployed and operational** on Raspberry Pi 192.168.20.62
+✅ **Deployed and operational** on Raspberry Pi

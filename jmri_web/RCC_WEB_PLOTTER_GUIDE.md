@@ -23,8 +23,10 @@
 
 Open your browser and go to:
 ```
-http://192.168.20.62:12080/web/rcc-plotter.html
+http://raspberry-pi:12080/web/rcc-plotter.html
 ```
+
+Replace `raspberry-pi` with your Raspberry Pi's hostname or IP address.
 
 That's it! You should now see:
 - Real-time charts for Speed, Throttle, Battery, Current, Temperature, Pressure
@@ -97,13 +99,13 @@ You can access the data via JMRI's JSON API:
 
 ```bash
 # Check connection status
-curl http://192.168.20.62:12080/json/memory/RCC_STATUS
+curl http://raspberry-pi:12080/json/memory/RCC_STATUS
 
 # Get locomotive list
-curl http://192.168.20.62:12080/json/memory/RCC_LOCO_LIST
+curl http://raspberry-pi:12080/json/memory/RCC_LOCO_LIST
 
 # Get specific telemetry value
-curl http://192.168.20.62:12080/json/memory/RCC_3_SPEED
+curl http://raspberry-pi:12080/json/memory/RCC_3_SPEED
 ```
 
 ---
@@ -151,7 +153,7 @@ To restart without reloading JMRI:
 
 **Check MQTT broker**:
 ```bash
-ssh vova@192.168.20.62
+ssh user@raspberry-pi
 ps aux | grep mosquitto
 ```
 
@@ -164,7 +166,7 @@ ps aux | grep mosquitto
 
 **Check MQTT traffic**:
 ```bash
-ssh vova@192.168.20.62
+ssh user@raspberry-pi
 mosquitto_sub -t "cab/+/heartbeat/values" -C 5
 ```
 
@@ -186,10 +188,10 @@ mosquitto_sub -t "cab/+/heartbeat/values" -C 5
 
 ### URLs
 
-- **Web Plotter**: http://192.168.20.62:12080/web/rcc-plotter.html
-- **JMRI Home**: http://192.168.20.62:12080/
-- **JSON Console**: http://192.168.20.62:12080/json/
-- **Memory Tables**: http://192.168.20.62:12080/tables/memory
+- **Web Plotter**: http://raspberry-pi:12080/web/rcc-plotter.html
+- **JMRI Home**: http://raspberry-pi:12080/
+- **JSON Console**: http://raspberry-pi:12080/json/
+- **Memory Tables**: http://raspberry-pi:12080/tables/memory
 
 ---
 
