@@ -207,6 +207,40 @@
             color: white;
         }
 
+        .functions-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 5px;
+        }
+
+        .func-btn {
+            padding: 8px 4px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            background: #f8f9fa;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            transition: all 0.2s;
+            text-align: center;
+            color: #333;
+        }
+
+        .func-btn:hover {
+            border-color: #667eea;
+            background: #e7eaff;
+        }
+
+        .func-btn:active {
+            transform: scale(0.95);
+        }
+
+        .func-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+            color: white;
+        }
+
         .charts-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -260,6 +294,13 @@
             <div class="control-panel">
                 <h3>🎮 Controls</h3>
                 <div id="controlsContent">
+                    <em style="color: #999;">Select a locomotive</em>
+                </div>
+            </div>
+
+            <div class="control-panel">
+                <h3>⚙️ Functions</h3>
+                <div id="functionsContent">
                     <em style="color: #999;">Select a locomotive</em>
                 </div>
             </div>
@@ -459,9 +500,43 @@
 
                 if (telemetry.distance !== undefined) loco.distance = telemetry.distance;
 
-                // Only update charts if this is the selected locomotive
+                // Only update charts and function buttons if this is the selected locomotive
                 if (this.selectedLocoId === locoId) {
                     this.updateCharts(loco);
+                    this.updateFunctionButtons();
+                }
+            }
+
+            async updateFunctionButtons() {
+                if (!this.selectedLocoId) return;
+
+                // Fetch function list to know which buttons exist
+                let functionList = [];
+                try {
+                    const funcListResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_FUNCTIONS`);
+                    const funcListData = await funcListResp.json();
+                    if (funcListData && funcListData.data && funcListData.data.value) {
+                        functionList = JSON.parse(funcListData.data.value);
+                    }
+                } catch (e) { return; }
+
+                // Update button states based on current function values
+                for (const func of functionList) {
+                    const btn = document.getElementById(`func${func.number}Btn`);
+                    if (!btn) continue;
+
+                    try {
+                        const funcResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_F${func.number}`);
+                        const funcData = await funcResp.json();
+                        if (funcData && funcData.data && funcData.data.value) {
+                            const isActive = funcData.data.value === '1';
+                            if (isActive) {
+                                btn.classList.add('active');
+                            } else {
+                                btn.classList.remove('active');
+                            }
+                        }
+                    } catch (e) { }
                 }
             }
 
@@ -555,6 +630,61 @@
                         <button class="dir-btn ${currentDirection === 'FORWARD' ? 'active' : ''}" onclick="plotter.setDirection('FORWARD')" title="Forward">▲</button>
                     </div>
                 `;
+                
+                // Update functions panel
+                await this.updateFunctionsPanel();
+            }
+
+            async updateFunctionsPanel() {
+                const functionsContent = document.getElementById('functionsContent');
+
+                if (!this.selectedLocoId) {
+                    functionsContent.innerHTML = '<em style="color: #999;">Select a locomotive</em>';
+                    return;
+                }
+
+                // Fetch function list
+                let functionList = [];
+                try {
+                    const funcListResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_FUNCTIONS`);
+                    const funcListData = await funcListResp.json();
+                    if (funcListData && funcListData.data && funcListData.data.value) {
+                        functionList = JSON.parse(funcListData.data.value);
+                    }
+                } catch (e) { }
+
+                if (functionList.length === 0) {
+                    functionsContent.innerHTML = '<em style="color: #999;">No functions available</em>';
+                    return;
+                }
+
+                // Fetch current function states from bitstate
+                const functionStates = {};
+                for (const func of functionList) {
+                    try {
+                        const funcResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_F${func.number}`);
+                        const funcData = await funcResp.json();
+                        if (funcData && funcData.data && funcData.data.value) {
+                            functionStates[func.number] = funcData.data.value === '1';
+                        }
+                    } catch (e) { }
+                }
+
+                // Build function buttons
+                let html = '<div class="functions-grid">';
+                for (const func of functionList) {
+                    const isActive = functionStates[func.number] || false;
+                    html += `
+                        <button class="func-btn ${isActive ? 'active' : ''}" 
+                                onclick="plotter.toggleFunction(${func.number})" 
+                                id="func${func.number}Btn"
+                                title="${func.name}">
+                            ${func.name}
+                        </button>
+                    `;
+                }
+                html += '</div>';
+                functionsContent.innerHTML = html;
             }
 
             setThrottle(value) {
@@ -590,6 +720,21 @@
                     document.querySelectorAll('.dir-btn').forEach(btn => btn.classList.remove('active'));
                     event.target.classList.add('active');
                 }
+            }
+
+            toggleFunction(funcNum) {
+                if (!this.selectedLocoId) return;
+
+                // Get current state from button
+                const btn = document.getElementById(`func${funcNum}Btn`);
+                if (!btn) return;
+                
+                const isActive = btn.classList.contains('active');
+                const newState = isActive ? 'OFF' : 'ON';
+
+                // Send MQTT command (don't update UI yet - wait for heartbeat confirmation)
+                this.sendMQTT(`cab/${this.selectedLocoId}/function/${funcNum}`, newState);
+                console.log(`Function F${funcNum} command sent: ${newState}`);
             }
 
             sendMQTT(topic, payload) {

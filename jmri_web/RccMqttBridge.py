@@ -135,6 +135,14 @@ class RccMqttBridge(MqttCallback):
             direction = direction_map.get(direction_bits, 'UNKNOWN')
             telemetry['direction'] = direction
             
+            # Extract function states from bitstate (lower 29 bits)
+            # Each bit represents a function F0-F28
+            function_states = {}
+            for i in range(29):
+                bit_value = (bitstate >> i) & 0x1
+                function_states['F' + str(i)] = bit_value
+            telemetry['functions'] = function_states
+            
             # Update locomotive data
             if loco_id not in self.locomotives:
                 self.locomotives[loco_id] = {
@@ -149,8 +157,14 @@ class RccMqttBridge(MqttCallback):
             
             # Store in memory variables
             for key, value in telemetry.items():
-                mem_name = "RCC_" + loco_id + "_" + key.upper()
-                self.set_memory(mem_name, str(value))
+                if key == 'functions':
+                    # Store individual function states
+                    for func_key, func_value in value.items():
+                        mem_name = "RCC_" + loco_id + "_" + func_key
+                        self.set_memory(mem_name, str(func_value))
+                else:
+                    mem_name = "RCC_" + loco_id + "_" + key.upper()
+                    self.set_memory(mem_name, str(value))
             
             # Update locomotive list
             self.update_loco_list()
