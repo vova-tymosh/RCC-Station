@@ -13,7 +13,7 @@ from org.eclipse.paho.client.mqttv3 import MqttClient, MqttConnectOptions, MqttC
 class RccMqttBridge(MqttCallback):
     def __init__(self):
         self.mqtt_broker = "tcp://localhost:1883"
-        self.client_id = "JMRI_RCC_Bridge_" + str(int(time.time() * 1000))
+        self.client_id = "JMRI_RCC_Bridge"
         self.mqtt_client = None
         self.locomotives = {}
         self.locomotive_keys = {}
@@ -33,12 +33,14 @@ class RccMqttBridge(MqttCallback):
             options = MqttConnectOptions()
             options.setCleanSession(True)
             options.setConnectionTimeout(10)
-            options.setKeepAliveInterval(20)
+            options.setKeepAliveInterval(60)
+            options.setAutomaticReconnect(True)
             
             self.mqtt_client.connect(options)
             self.mqtt_client.subscribe("cab/+/heartbeat/values")
             self.mqtt_client.subscribe("cab/+/heartbeat/keys")
             self.mqtt_client.subscribe("cab/+/intro")
+            self.mqtt_client.subscribe("cab/+/function/list")
             
             print("✓ Connected to MQTT broker")
             print("✓ Subscribed to RCC topics")
@@ -67,6 +69,11 @@ class RccMqttBridge(MqttCallback):
     def connectionLost(self, cause):
         print("✗ MQTT connection lost: " + str(cause))
         self.set_memory("RCC_STATUS", "DISCONNECTED")
+        print("Attempting to reconnect...")
+        try:
+            self.connect_mqtt()
+        except Exception as e:
+            print("Reconnection failed: " + str(e))
     
     def messageArrived(self, topic, message):
         try:
@@ -87,6 +94,8 @@ class RccMqttBridge(MqttCallback):
                 self.process_keys(topic_str, payload)
             elif "/intro" in topic_str:
                 self.process_intro(topic_str, payload)
+            elif "/function/list" in topic_str:
+                self.process_function_list(topic_str, payload)
                 
         except Exception as e:
             import traceback
@@ -198,8 +207,80 @@ class RccMqttBridge(MqttCallback):
                 
                 print("Loco " + loco_id + " introduced: " + parts[2].strip() + " (v" + parts[3].strip() + ")")
                 self.update_loco_list()
+                
+                # Schedule function list request to run outside callback thread
+                self.schedule_function_list_request(loco_id)
         except Exception as e:
             print("Error in process_intro: " + str(e))
+    
+    def schedule_function_list_request(self, loco_id):
+        """Schedule a function list request to run after a short delay"""
+        from java.util import Timer, TimerTask
+        
+        class RequestTask(TimerTask):
+            def __init__(self, bridge, loco_id):
+                self.bridge = bridge
+                self.loco_id = loco_id
+                
+            def run(self):
+                self.bridge.request_function_list(self.loco_id)
+        
+        timer = Timer()
+        task = RequestTask(self, loco_id)
+        timer.schedule(task, 100)  # Wait 100ms then request
+    
+    def request_function_list(self, loco_id):
+        """Request the function list from a locomotive"""
+        try:
+            if self.mqtt_client and self.mqtt_client.isConnected():
+                topic = "cab/" + loco_id + "/function/list/req"
+                # Use same pattern as process_command - empty string payload
+                self.mqtt_client.publish(topic, "".encode('utf-8'), 0, False)
+                print("✓ Requested function list for loco " + loco_id)
+            else:
+                print("✗ Cannot request function list - MQTT not connected")
+        except Exception as e:
+            import traceback
+            print("✗ Error requesting function list: " + str(e))
+            traceback.print_exc()
+    
+    def process_function_list(self, topic, payload):
+        """Process function list response from locomotive"""
+        try:
+            topic_parts = topic.split("/")
+            if len(topic_parts) < 2:
+                return
+            loco_id = topic_parts[1]
+            
+            # Parse payload: "0,headlight,1,bell,2,horn,3,coupler"
+            parts = payload.strip().split(",")
+            functions = []
+            
+            # Parse pairs of (number, name)
+            for i in range(0, len(parts), 2):
+                if i + 1 < len(parts):
+                    func_num = parts[i].strip()
+                    func_name = parts[i + 1].strip()
+                    functions.append({
+                        'number': func_num,
+                        'name': func_name
+                    })
+            
+            # Store in locomotive data
+            if loco_id in self.locomotives:
+                self.locomotives[loco_id]['functions'] = functions
+                print("Loco " + loco_id + " has " + str(len(functions)) + " functions: " + 
+                      ", ".join([f['name'] for f in functions]))
+                
+                # Store function list in memory as JSON
+                import json
+                func_json = json.dumps(functions)
+                self.set_memory("RCC_" + loco_id + "_FUNCTIONS", func_json)
+            
+        except Exception as e:
+            import traceback
+            print("Error in process_function_list: " + str(e))
+            traceback.print_exc()
     
     def update_loco_list(self):
         loco_list = []
