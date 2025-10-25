@@ -42,32 +42,24 @@ class RccMqttBridge(MqttCallback):
             self.mqtt_client.subscribe("cab/+/intro")
             self.mqtt_client.subscribe("cab/+/function/list")
             
-            print("✓ Connected to MQTT broker")
-            print("✓ Subscribed to RCC topics")
+            print("[OK] Connected to MQTT broker")
+            print("[OK] Subscribed to RCC topics")
             self.set_memory("RCC_STATUS", "CONNECTED")
-            print("")
-            print("Bridge is running. RCC data will be stored in memory variables:")
-            print("  - RCC_LOCO_LIST (JSON list of locomotives)")
-            print("  - RCC_3_SPEED, RCC_3_THROTTLE, etc. (individual values)")
-            print("")
-            print("To send commands, set RCC_CMD memory variable with JSON:")
-            print('  {"topic": "cab/3/throttle", "payload": "50"}')
-            print("")
             
             # Create command memory variable
             self.set_memory("RCC_CMD", "")
             
             # Start command monitoring
             self.start_command_monitor()
-            print("Access via web: http://192.168.20.62:12080/web/rcc-plotter.html")
+            print("[OK] Bridge ready - /web/rcc-plotter.html")
             print("=" * 60)
             
         except Exception as e:
-            print("✗ Failed to connect: " + str(e))
+            print("[ERROR] Failed to connect: " + str(e))
             self.set_memory("RCC_STATUS", "DISCONNECTED")
     
     def connectionLost(self, cause):
-        print("✗ MQTT connection lost: " + str(cause))
+        print("[ERROR] MQTT connection lost: " + str(cause))
         self.set_memory("RCC_STATUS", "DISCONNECTED")
         print("Attempting to reconnect...")
         try:
@@ -112,13 +104,8 @@ class RccMqttBridge(MqttCallback):
             # Extract loco ID from topic: cab/3/heartbeat/values
             topic_parts = topic.split("/")
             if len(topic_parts) < 2:
-                print("Invalid topic format: " + topic)
                 return
             loco_id = topic_parts[1]
-            
-            # Debug: print raw payload
-            print("DEBUG - Raw payload for loco " + loco_id + ": [" + payload + "]")
-            print("DEBUG - Payload length: " + str(len(payload)))
             
             # Parse CSV values
             values = payload.strip().split(",")
@@ -126,8 +113,6 @@ class RccMqttBridge(MqttCallback):
                 ["Time", "Distance", "Bitstate", "Speed", "Lost", "Throttle", "ThrOut", "Battery", "Temp", "Psi", "Current"])
             
             if len(values) != len(keys):
-                print("Value/key mismatch for loco " + loco_id + ": " + str(len(values)) + " values, " + str(len(keys)) + " keys")
-                print("DEBUG - First 5 values: " + str(values[:5]))
                 return
             
             # Create telemetry dict
@@ -141,7 +126,6 @@ class RccMqttBridge(MqttCallback):
                     if key == 'bitstate':
                         bitstate = int(value)
                 except Exception as e:
-                    print("Error parsing value at index " + str(i) + ": " + str(e))
                     pass
             
             # Extract direction from bitstate (2 highest bits)
@@ -158,7 +142,6 @@ class RccMqttBridge(MqttCallback):
                     'name': 'Loco ' + loco_id,
                     'address': loco_id
                 }
-                print("Discovered new locomotive: " + loco_id)
             
             loco = self.locomotives[loco_id]
             loco['last_seen'] = int(time.time() * 1000)
@@ -185,7 +168,6 @@ class RccMqttBridge(MqttCallback):
             loco_id = topic_parts[1]
             keys = payload.strip().split(",")
             self.locomotive_keys[loco_id] = keys
-            print("Stored keys for loco " + loco_id + ": " + str(len(keys)) + " keys")
         except Exception as e:
             print("Error in process_keys: " + str(e))
     
@@ -236,12 +218,12 @@ class RccMqttBridge(MqttCallback):
                 topic = "cab/" + loco_id + "/function/list/req"
                 # Use same pattern as process_command - empty string payload
                 self.mqtt_client.publish(topic, "".encode('utf-8'), 0, False)
-                print("✓ Requested function list for loco " + loco_id)
+                print("[OK] Requested function list for loco " + loco_id)
             else:
-                print("✗ Cannot request function list - MQTT not connected")
+                print("[ERROR] Cannot request function list - MQTT not connected")
         except Exception as e:
             import traceback
-            print("✗ Error requesting function list: " + str(e))
+            print("[ERROR] Error requesting function list: " + str(e))
             traceback.print_exc()
     
     def process_function_list(self, topic, payload):
@@ -329,7 +311,7 @@ class RccMqttBridge(MqttCallback):
         self.cmd_timer = Timer()
         self.cmd_task = CommandMonitorTask(self)
         self.cmd_timer.scheduleAtFixedRate(self.cmd_task, 100, 100)  # Check every 100ms
-        print("✓ Command monitor started")
+        print("[OK] Command monitor started")
     
     def process_command(self, cmd_json):
         """Process and publish a command from the web interface"""
