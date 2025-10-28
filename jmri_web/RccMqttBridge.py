@@ -114,6 +114,11 @@ class RccMqttBridge(MqttCallback):
                 return
             loco_id = topic_parts[1]
             
+            # If we haven't received keys yet, request introduction
+            if loco_id not in self.locomotive_keys:
+                self.schedule_intro_request(loco_id)
+                return
+            
             # Parse CSV values
             values = payload.strip().split(",")
             keys = self.locomotive_keys.get(loco_id, 
@@ -231,6 +236,22 @@ class RccMqttBridge(MqttCallback):
         task = RequestTask(self, loco_id)
         timer.schedule(task, 100)  # Wait 100ms then request
     
+    def schedule_intro_request(self, loco_id):
+        """Schedule an intro request to run after a short delay"""
+        from java.util import Timer, TimerTask
+        
+        class RequestTask(TimerTask):
+            def __init__(self, bridge, loco_id):
+                self.bridge = bridge
+                self.loco_id = loco_id
+                
+            def run(self):
+                self.bridge.request_intro(self.loco_id)
+        
+        timer = Timer()
+        task = RequestTask(self, loco_id)
+        timer.schedule(task, 100)  # Wait 100ms then request
+    
     def request_function_list(self, loco_id):
         """Request the function list from a locomotive"""
         try:
@@ -244,6 +265,20 @@ class RccMqttBridge(MqttCallback):
         except Exception as e:
             import traceback
             self.log.error("Error requesting function list: " + str(e))
+            traceback.print_exc()
+    
+    def request_intro(self, loco_id):
+        """Request introduction from a locomotive"""
+        try:
+            if self.mqtt_client and self.mqtt_client.isConnected():
+                topic = "cab/" + loco_id + "/intro/req"
+                self.mqtt_client.publish(topic, "".encode('utf-8'), 0, False)
+                self.log.info("Requested introduction from loco " + loco_id)
+            else:
+                self.log.warn("Cannot request intro - MQTT not connected")
+        except Exception as e:
+            import traceback
+            self.log.error("Error requesting intro: " + str(e))
             traceback.print_exc()
     
     def process_function_list(self, topic, payload):
