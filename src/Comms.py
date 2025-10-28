@@ -27,7 +27,7 @@ NRF_LIST_CAB = 'C'
 NRF_HEARTBEAT = 'H'
 NRF_PING = '0'
 MQ_INTRO = 'intro'
-MQ_INTRO_REQ = 'introreq'
+MQ_INTRO_REQ = 'intro/req'
 
 #
 # NRF to MQTT and back translation table.
@@ -61,9 +61,13 @@ def buildTrasnlationMap():
 #
 def translateIntro(toNrf, k, v):
     if toNrf:
-        broker.processIntro(v, 'MQ')
+        if k != '/req':
+            broker.processIntro(v, 'MQ')
+        return bytes(v, 'utf-8')
     else:
-        broker.processIntro(v.decode(), 'NRF')
+        if k != '/req':
+            broker.processIntro(v.decode(), 'NRF')
+        return '', v.decode()
 
 def translateHeartbeat(toNrf, k, v):
     fmt = broker.getHeartbeatFmt()
