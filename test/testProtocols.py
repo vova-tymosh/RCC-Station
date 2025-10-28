@@ -15,7 +15,8 @@ testProtocolBoth = [
 ('cab/3/function/3+OFF',             b'F\x03'),
 ('cab/3/value/get+zupa',             b'Gzupa'),
 ('cab/3/value/zupa+abc',             b'Szupa,abc'),
-('cab/3/value/list+',                b'L'),
+('cab/3/value/list/req+',            b'L'),
+('cab/3/value/list+va,vb,vc',        b'Jva,vb,vc'),
 ('cab/3/direction+FORWARD',          b'D\x01'),
 ('cab/3/direction+REVERSE',          b'D\x00'),
 ('cab/3/direction+STOP',             b'D\x02'),
@@ -30,8 +31,8 @@ testProtocolToNrf = [
 ('cab/3/throttle+-1',                b'T\x01'),
 ('cab/3/function/get+a',             None),
 ('cab/3/value/get+',                 b'G'),
-('cab/3/value/list+a',               b'La'),
 ('cab/3/direction+FOR',              None),
+('cab/3/intro/req+',                 b'A'),
 ]
 
 testProtocolToMq = []

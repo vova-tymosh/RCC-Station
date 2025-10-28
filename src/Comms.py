@@ -65,8 +65,7 @@ def translateIntro(toNrf, k, v):
             broker.processIntro(v, 'MQ')
         return bytes(v, 'utf-8')
     else:
-        if k != '/req':
-            broker.processIntro(v.decode(), 'NRF')
+        broker.processIntro(v.decode(), 'NRF')
         return '', v.decode()
 
 def translateHeartbeat(toNrf, k, v):
@@ -173,6 +172,8 @@ class Broker:
 
     def processIntro(self, message, proto):
         fields = message.split(NRF_SEPARATOR)
+        if len(fields) < 4:
+            return
         m = { 'Type': fields[0], 'Addr': fields[1], 'Name': fields[2], 'Version': fields[3], 'Proto': proto}
         if len(fields) > 4:
             m['Format'] = self.updateFmt(fields[4])
