@@ -1,4 +1,12 @@
 #
+# Copyright (c) 2024-2025 Volodymyr "Vova" Tymoshchuk
+# Distributed under MIT licence, https://github.com/vova-tymosh/RCC/blob/main/LICENSE
+# For more details go to https://github.com/vova-tymosh/RCC
+#
+# The above copyright notice shall be included in all
+# copies or substantial portions of the Software.
+#
+#
 # RF24 Wireless communication
 # 
 # RF Library Instalation
@@ -6,6 +14,7 @@
 #   C code Instalation:   https://nrf24.github.io/RF24/md_docs_linux_install.html
 #   Python wrapper:       https://nrf24.github.io/RF24/md_docs_python_wrapper.html
 #
+
 import time
 import queue
 import threading

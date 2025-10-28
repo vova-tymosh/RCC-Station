@@ -1,8 +1,18 @@
-"""
-RCC MQTT Bridge for JMRI
-Connects to MQTT and stores RCC locomotive data in JMRI memory variables
-Run this from JMRI: Scripting -> Script Entry -> Load this file -> Execute
-"""
+#
+# Copyright (c) 2024-2025 Volodymyr "Vova" Tymoshchuk
+# Distributed under MIT licence, https://github.com/vova-tymosh/RCC/blob/main/LICENSE
+# For more details go to https://github.com/vova-tymosh/RCC
+#
+# The above copyright notice shall be included in all
+# copies or substantial portions of the Software.
+#
+
+
+#
+# RCC MQTT Bridge for JMRI
+# Connects to MQTT and stores RCC locomotive data in JMRI memory variables
+# Run this from JMRI: Scripting -> Script Entry -> Load this file -> Execute
+#
 
 import jmri
 import java
