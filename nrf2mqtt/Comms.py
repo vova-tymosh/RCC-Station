@@ -56,8 +56,8 @@ def buildTrasnlationMap():
         RouteEntry('D',  translateDirection,    'direction',        ),
         RouteEntry('U',  translateStr,          'function/list/req',),
         RouteEntry('V',  translateStr,          'function/list',    ),
-        RouteEntry('M',  translateValueSet,     'function/name',    ),
-        RouteEntry('P',  translateInt,          'function/get',     ),
+        RouteEntry('M',  translateValueSet,     'function/name/',   ),
+        RouteEntry('P',  translateStr,          'function/get',     ),
         RouteEntry('F',  translateFunctionSet,  'function/',        ),
         RouteEntry('L',  translateStr,          'value/list/req',   ),
         RouteEntry('J',  translateStr,          'value/list',       ),
@@ -103,9 +103,11 @@ def translateDirection(toNrf, k, v):
 
 def translateFunctionSet(toNrf, k, v):
     if toNrf:
-        return [(int(k) & 0x7F) | (1 << 7 if v == 'ON' else 0)]
+        v = 1 if v == 'ON' else 0
+        return bytes(f'{k}{NRF_SEPARATOR}{v}', 'utf-8')
     else:
-        return str(ord(v) & 0x7F), ('ON' if ord(v) & 0x80 else 'OFF')
+        v = v.decode().split(NRF_SEPARATOR)
+        return v[0], ('ON' if v[1] == '1' else 'OFF')
 
 def translateValueSet(toNrf, k, v):
     if toNrf:
