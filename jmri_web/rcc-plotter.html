@@ -543,11 +543,57 @@
 
                 if (telemetry.distance !== undefined) loco.distance = telemetry.distance;
 
-                // Only update charts and function buttons if this is the selected locomotive
+                // Only update charts, controls, and function buttons if this is the selected locomotive
                 if (this.selectedLocoId === locoId) {
                     this.updateCharts(loco);
+                    this.updateThrottleControl();
+                    this.updateDirectionControl();
                     this.updateFunctionButtons();
                 }
+            }
+
+            async updateThrottleControl() {
+                if (!this.selectedLocoId) return;
+
+                const slider = document.getElementById('throttleSlider');
+                const valueDisplay = document.getElementById('throttleValue');
+                if (!slider || !valueDisplay) return;
+
+                try {
+                    const throttleResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_THROTTLE`);
+                    const throttleData = await throttleResp.json();
+                    if (throttleData && throttleData.data && throttleData.data.value) {
+                        const currentThrottle = Math.round(parseFloat(throttleData.data.value));
+                        slider.value = currentThrottle;
+                        valueDisplay.textContent = currentThrottle;
+                    }
+                } catch (e) { }
+            }
+
+            async updateDirectionControl() {
+                if (!this.selectedLocoId) return;
+
+                try {
+                    const dirResp = await fetch(`/json/memory/RCC_${this.selectedLocoId}_DIRECTION`);
+                    const dirData = await dirResp.json();
+                    if (dirData && dirData.data && dirData.data.value) {
+                        const currentDirection = dirData.data.value;
+                        
+                        // Update button states
+                        document.querySelectorAll('.dir-btn').forEach(btn => {
+                            btn.classList.remove('active');
+                        });
+                        
+                        const dirButtons = document.querySelectorAll('.dir-btn');
+                        if (currentDirection === 'REVERSE' && dirButtons[0]) {
+                            dirButtons[0].classList.add('active');
+                        } else if (currentDirection === 'STOP' && dirButtons[1]) {
+                            dirButtons[1].classList.add('active');
+                        } else if (currentDirection === 'FORWARD' && dirButtons[2]) {
+                            dirButtons[2].classList.add('active');
+                        }
+                    }
+                } catch (e) { }
             }
 
             async updateFunctionButtons() {
